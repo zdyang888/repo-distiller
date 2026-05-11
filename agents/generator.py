@@ -221,11 +221,15 @@ class GeneratorAgent:
             system=EXERCISE_SYSTEM,
             model=self.llm.model_for_step("notebooks"),
         )
-        cells = parse_llm_response(response)
+        
+        # Save solution FIRST (keeps implementations)
+        self._generate_solution(response, nb_spec, curriculum, sol_path)
+        
+        # Hollow out the response for the exercise version
+        hollowed_response = _hollow_out_exercise(response)
+        cells = parse_llm_response(hollowed_response)
         nb = build_notebook(cells, title=f"{nb_spec.get('title', '')} — Exercise")
         save_notebook(nb, str(out_path))
-
-        self._generate_solution(response, nb_spec, curriculum, sol_path)
 
     def _generate_solution(
         self,
@@ -349,6 +353,23 @@ class GeneratorAgent:
 
         readme_path = self.output_dir / "README.md"
         readme_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _hollow_out_exercise(text: str) -> str:
+    """Replace code between START/END tags with a placeholder.
+
+    Args:
+        text: Raw LLM response text.
+
+    Returns:
+        Modified text with code implementations removed.
+    """
+    pattern = re.compile(
+        r"(### START CODE HERE ###\n).*?(\n[ \t]*### END CODE HERE ###)",
+        re.DOTALL,
+    )
+    # Replace with a comment and a pass statement, preserving indentation
+    return pattern.sub(r"\1    # your code here\n    pass\2", text)
 
 
 def _apply_solutions(exercise_text: str, solution_response: str) -> str:

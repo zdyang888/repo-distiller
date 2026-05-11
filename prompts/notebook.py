@@ -79,10 +79,12 @@ Structure:
 10. ===CODE===     — Integration test: wires Exercise 1 + 2 together
 
 Rules:
-- Students fill in code between ### START CODE HERE ### and ### END CODE HERE ###
-- Leave function signature, docstring, and return type annotation intact
+- You MUST provide the correct implementation between ### START CODE HERE ### and ### END CODE HERE ### tags.
+- The student version will be automatically hollowed out, while the solution version will keep your code.
+- Leave function signature, docstring, and return type annotation intact.
 - Test cells use assert with clear failure messages:
     assert result == expected, f"Got {{result}}, expected {{expected}}"
-- Tests must pass when correct implementation is provided (deterministic inputs)
-- Do not test private implementation details, only observable behavior
+- Tests must pass when correct implementation is provided (deterministic inputs).
+- Do not test private implementation details, only observable behavior.
+- Minimum 3 Exercise CODE cells.
 """

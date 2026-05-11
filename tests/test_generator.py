@@ -5,7 +5,40 @@ from pathlib import Path
 
 import pytest
 
-from agents.generator import GeneratorAgent, _slug
+from agents.generator import GeneratorAgent, _slug, _hollow_out_exercise
+
+
+def test_hollow_out_exercise():
+    """Verify that code between stubs is replaced by a placeholder."""
+    text = """
+===MARKDOWN===
+# Exercise 1
+===CODE===
+def add(a, b):
+    ### START CODE HERE ###
+    return a + b
+    ### END CODE HERE ###
+
+===MARKDOWN===
+# Exercise 2
+===CODE===
+class Multiplier:
+    def __init__(self, factor):
+        ### START CODE HERE ###
+        self.factor = factor
+        ### END CODE HERE ###
+"""
+    hollowed = _hollow_out_exercise(text)
+    
+    assert "return a + b" not in hollowed
+    assert "self.factor = factor" not in hollowed
+    assert "### START CODE HERE ###" in hollowed
+    assert "### END CODE HERE ###" in hollowed
+    assert "# your code here" in hollowed
+    assert "pass" in hollowed
+    
+    # Check that indentation is preserved (roughly)
+    assert "    # your code here" in hollowed
 from tests.conftest import MockLLM
 
 
