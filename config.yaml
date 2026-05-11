@@ -1,16 +1,17 @@
 # repo-distiller configuration
-default_model: claude-sonnet-4-20250514
+default_model: gemini-2.5-flash
 
-# Per-step model overrides (optional)
+# Per-step model overrides
 step_models:
-  # explore: gemini-2.0-flash
-  # curriculum: claude-sonnet-4-20250514
-  # notebooks: claude-sonnet-4-20250514
-  # capstone: claude-sonnet-4-20250514
+  explore: gemini-2.5-flash
+  curriculum: gemini-2.5-flash
+  notebooks: gemini-2.5-pro
+  capstone: gemini-2.5-pro
 
 generation:
   max_explore_steps: 20
   max_notebooks: 8
+  capstone_max_tokens: 16000
 
 # Where to clone repos (defaults to ./work)
 work_dir: work

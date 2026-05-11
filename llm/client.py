@@ -179,7 +179,10 @@ class LLMClient:
             max_tokens=max_tokens,
             messages=full_messages,
         )
-        text = response.choices[0].message.content
+        choice = response.choices[0]
+        text = choice.message.content or ""
+        if not text:
+            logger.warning("OpenAI returned empty content, finish_reason=%r", choice.finish_reason)
         usage = {
             "input_tokens": response.usage.prompt_tokens,
             "output_tokens": response.usage.completion_tokens,
@@ -216,7 +219,10 @@ class LLMClient:
             max_tokens=max_tokens,
             messages=full_messages,
         )
-        text = response.choices[0].message.content
+        choice = response.choices[0]
+        text = choice.message.content or ""
+        if not text:
+            logger.warning("Gemini returned empty content, finish_reason=%r", choice.finish_reason)
         usage = {
             "input_tokens": response.usage.prompt_tokens,
             "output_tokens": response.usage.completion_tokens,

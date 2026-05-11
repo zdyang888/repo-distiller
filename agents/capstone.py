@@ -174,7 +174,10 @@ class CapstoneAgent:
             model=self.llm.model_for_step("capstone"),
             max_tokens=max_tokens + 2000,
         )
-        return _strip_code_fences(response)
+        result = _strip_code_fences(response)
+        if not result:
+            raise ValueError("Reference implementation generation returned empty response")
+        return result
 
     def _regenerate_tests(
         self,
@@ -265,8 +268,10 @@ from interfaces import *
         return run_pytest(interfaces_content, tests_content, reference_impl, timeout=timeout)
 
 
-def _strip_code_fences(code: str) -> str:
+def _strip_code_fences(code: str | None) -> str:
     """Strip leading ``` / ```python and trailing ``` fences from LLM output."""
+    if not code:
+        return ""
     code = code.strip()
     if code.startswith("```"):
         first_newline = code.find("\n")
