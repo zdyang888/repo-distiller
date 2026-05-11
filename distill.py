@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """repo-distiller CLI — transform GitHub repos into educational curricula."""
 
+# Load .env before anything else so API keys are available to all modules
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed; fall back to environment variables
+
 import argparse
 import json
 import logging
