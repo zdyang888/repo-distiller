@@ -97,10 +97,13 @@ python distill.py --status --output output/nanoGPT_course
 python distill.py --resume --output output/nanoGPT_course
 
 # Preview a single notebook before generating everything
-python distill.py --preview-notebook 03 --output output/nanoGPT_course
+python distill.py --preview 03 --output output/nanoGPT_course
 
 # Estimate cost before committing to full generation
 python distill.py --estimate-cost --output output/nanoGPT_course
+
+# Increase logging verbosity (writes full DEBUG log to distill.log)
+python distill.py --continue --log-level DEBUG --output output/nanoGPT_course
 ```
 
 ---
