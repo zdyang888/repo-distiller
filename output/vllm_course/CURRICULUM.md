@@ -1,78 +1,68 @@
-# Curriculum: Understanding vLLM
+# Curriculum: Understanding vLLM: Fast LLM Inference and Serving
 
 Source: https://github.com/vllm-project/vllm
 
 ## Overview
 
-The system processes incoming requests through an `LLMEngine`, which uses an `InputProcessor` to prepare them and an `OutputProcessor` to format results. The core of the system is the `EngineCore`, which coordinates a `Scheduler` and an `Executor`. The `Scheduler` manages the lifecycle of requests and their KV cache blocks (via PagedAttention), while the `Executor` is responsible for running the model on the underlying hardware, performing the actual forward passes.
+The vLLM system receives user requests through its LLMEngine, which then dispatches them to an EngineCore via an EngineCoreClient. The EngineCore orchestrates the entire inference process, utilizing a Scheduler to manage incoming requests, prioritize them, and allocate KV cache blocks using PagedAttention. An Executor component then takes the scheduled batches and runs the actual model inference, potentially across multiple devices, while interacting with the KV cache and returning outputs to the Scheduler, which are then processed back to the user.
 
 ## Notebooks
 
-### 01. Request Input & Output Processing
+### 01. Interacting with vLLM: The User API
 
-Students will build simplified versions of an `InputProcessor` to tokenize prompts and an `OutputProcessor` to detokenize generated tokens and manage streaming output.
-
-**Learning objectives:**
-- By the end, students will be able to understand the lifecycle of a request's input and output within an LLM serving system.
-- Students will understand why tokenization and detokenization are crucial for LLM interaction.
-
-**Exercise:** Students will implement a `SimpleInputProcessor` to tokenize a string into integer IDs and a `SimpleOutputProcessor` to detokenize a list of IDs back to a string, handling partial outputs for streaming.
-
-### 02. PagedAttention: Efficient KV Cache Management
-
-Students will simulate the core mechanics of PagedAttention, managing fixed-size KV cache blocks for multiple sequences, and understanding how it reduces memory fragmentation to improve throughput.
+Learn how users interact with vLLM by sending requests and receiving responses, understanding the LLMEngine's role as the primary interface to the system.
 
 **Learning objectives:**
-- By the end, students will be able to understand the concept of PagedAttention and its benefits for LLM inference memory efficiency.
-- Students will understand how to implement a simplified KV cache block allocation and mapping system.
+- By the end, students will be able to initiate and manage LLM inference requests through a high-level API.
+- Students will understand the basic lifecycle of a request from submission to output retrieval.
 
-**Exercise:** Students will implement a `SimulatedKVCacheManager` that allocates fixed-size `KVBlock`s and maps logical sequence token positions to physical block-offset pairs, mimicking PagedAttention.
+**Exercise:** Implement a simplified `RequestManager` class that queues requests, assigns unique IDs, and simulates marking them as 'completed' after a mock processing step.
 
-### 03. The LLM Model Executor
+### 02. The Heart of vLLM: Request Orchestration with EngineCore
 
-Students will build a mock `Executor` that simulates running a model's forward pass, accepting batches of token IDs and returning mock logits, focusing on the interface between the scheduler and the model.
-
-**Learning objectives:**
-- By the end, students will be able to understand the role of the `Executor` in abstracting model execution details.
-- Students will understand how to simulate a batched LLM forward pass on a computational device.
-
-**Exercise:** Students will implement a `MockExecutor` that takes a batch of `Request` objects (with input IDs and mock KV cache mappings) and returns a batch of `MockOutput` objects (with generated token IDs), simulating a single model step.
-
-### 04. Request Scheduling and Continuous Batching
-
-Students will implement a simplified `Scheduler` that manages multiple incoming requests, prioritizes them, and constructs batches for the `Executor` using continuous batching logic, interacting with the KV cache manager.
+Understand how the EngineCore orchestrates the entire inference lifecycle, dispatching requests and coordinating between scheduling and execution components.
 
 **Learning objectives:**
-- By the end, students will be able to understand continuous batching and its role in maximizing LLM throughput.
-- Students will understand how to design a scheduling algorithm that manages sequence states and interacts with a KV cache system.
+- By the end, students will be able to describe the role of EngineCore as the central coordinating entity.
+- Students will understand how EngineCore manages the flow of requests between different internal components.
 
-**Exercise:** Students will implement a `SimpleScheduler` that queues incoming `requests`, selects a batch for the `MockExecutor` based on available KV cache blocks (from `SimulatedKVCacheManager`), and updates sequence states through continuous batching.
+**Exercise:** Design a mock `EngineCore` that receives requests from a mock `LLMEngine`, logs its 'dispatch' decisions to mock `Scheduler` and `Executor` interfaces, and tracks request states.
 
-### 05. Orchestrating the Inference Engine Core
+### 03. Efficient Request Handling: The Scheduler
 
-Students will integrate the `Scheduler`, `Executor`, and `Input/Output Processors` into a basic `EngineCore`, demonstrating the central coordination of inference requests from intake to output.
-
-**Learning objectives:**
-- By the end, students will be able to understand how the core components of an LLM serving system interact.
-- Students will understand how to build an orchestrator that manages the flow from request intake to output generation.
-
-**Exercise:** Students will implement a `MiniEngineCore` that initializes and coordinates the `SimpleScheduler`, `MockExecutor`, `SimpleInputProcessor`, and `SimpleOutputProcessor` to process a single end-to-end request.
-
-### 06. The User-Facing LLM Engine API
-
-Students will create a high-level `LLMEngine` that provides a user-friendly, streaming interface for submitting prompts and receiving responses, utilizing the `EngineCore`.
+Dive into how the Scheduler component manages the queue of incoming requests, prioritizes them, and prepares batches for model execution, considering resource constraints.
 
 **Learning objectives:**
-- By the end, students will be able to understand the public API and user interaction patterns of an LLM serving system.
-- Students will understand how to implement an asynchronous or streaming interface for LLM inference.
+- By the end, students will be able to explain how requests are queued, prioritized, and selected for inference.
+- Students will understand the scheduler's role in managing inference throughput and latency.
 
-**Exercise:** Students will implement a `UserLLMEngine` class that wraps the `MiniEngineCore`, offering a `generate(prompt: str, ...)` method that returns an iterator for streaming output.
+**Exercise:** Implement a basic `FirstComeFirstServedScheduler` that maintains a queue of incoming requests, selects a subset to form an 'execution batch', and updates request states (e.g., pending, running, completed).
+
+### 04. Model Execution: The Executor
+
+Explore how the Executor component is responsible for loading the LLM model and performing the actual forward pass on scheduled batches of requests.
+
+**Learning objectives:**
+- By the end, students will be able to describe the executor's responsibility in loading and running LLM models.
+- Students will understand the interface between the scheduler and the low-level model inference operations.
+
+**Exercise:** Create a mock `SimpleModelExecutor` class that takes a batch of 'token IDs' and simulates generating new token IDs, along with managing simplified KV cache updates, returning the generated tokens and 'completion' status.
+
+### 05. Memory Efficiency: PagedAttention KV Cache
+
+Understand the advanced PagedAttention technique for managing KV cache memory, enabling higher throughput and efficient resource utilization by treating KV cache as a paged memory system.
+
+**Learning objectives:**
+- By the end, students will be able to explain the core principles of PagedAttention for KV cache management.
+- Students will understand how block allocation and deallocation contribute to memory efficiency and throughput.
+
+**Exercise:** Implement a simplified `BlockAllocator` that manages a fixed pool of 'KV cache pages', allocating them to simulated requests, handling block extensions for growing sequences, and correctly deallocating blocks upon request completion.
 
 ## Capstone Project
 
-**mini-vLLM**
+**mini-vLLM Inference Server**
 
-Students will build a simplified, end-to-end LLM inference server that leverages the key concepts of vLLM: request processing, efficient KV cache management, continuous batching, and model execution. This capstone will solidify their understanding of how these components integrate to achieve high-throughput LLM serving.
+Students will build a simplified, end-to-end LLM inference server that processes user requests, schedules them based on availability, executes a mock model for token generation, and manages a basic KV cache using PagedAttention principles, synthesizing all core vLLM concepts.
 
 ---
 
@@ -80,247 +70,231 @@ Students will build a simplified, end-to-end LLM inference server that leverages
 
 ```json
 {
-  "title": "Understanding vLLM",
-  "mental_model": "The system processes incoming requests through an `LLMEngine`, which uses an `InputProcessor` to prepare them and an `OutputProcessor` to format results. The core of the system is the `EngineCore`, which coordinates a `Scheduler` and an `Executor`. The `Scheduler` manages the lifecycle of requests and their KV cache blocks (via PagedAttention), while the `Executor` is responsible for running the model on the underlying hardware, performing the actual forward passes.",
+  "title": "Understanding vLLM: Fast LLM Inference and Serving",
+  "mental_model": "The vLLM system receives user requests through its LLMEngine, which then dispatches them to an EngineCore via an EngineCoreClient. The EngineCore orchestrates the entire inference process, utilizing a Scheduler to manage incoming requests, prioritize them, and allocate KV cache blocks using PagedAttention. An Executor component then takes the scheduled batches and runs the actual model inference, potentially across multiple devices, while interacting with the KV cache and returning outputs to the Scheduler, which are then processed back to the user.",
   "concepts": [
     {
-      "name": "LLMEngine",
-      "description": "The public-facing entry point for interacting with vLLM, responsible for receiving user requests, delegating input/output processing, and coordinating with the internal `EngineCore` for model execution and scheduling.",
+      "name": "LLMEngine (User API)",
+      "description": "The primary user-facing API for interacting with vLLM, providing methods to add requests, retrieve outputs, and manage the lifecycle of inference jobs.",
       "complexity": "basic"
     },
     {
       "name": "EngineCore",
-      "description": "The central orchestrator of the vLLM system, responsible for initializing the `ModelExecutor` and `Scheduler`, managing the overall lifecycle of inference, and handling communication with external clients (via `EngineCoreClient`).",
+      "description": "The central orchestration component of vLLM, responsible for the inner loop of the inference process, integrating the Scheduler and Executor.",
       "complexity": "intermediate"
     },
     {
       "name": "Scheduler",
-      "description": "Manages the efficient scheduling of LLM inference requests, including techniques like continuous batching and PagedAttention for KV cache management. It determines which requests to process in each model forward pass and handles their memory allocation and state transitions.",
+      "description": "Manages the lifecycle of inference requests, including queuing, prioritizing, scheduling for execution, and allocating KV cache blocks using PagedAttention.",
       "complexity": "intermediate"
     },
     {
       "name": "Executor",
-      "description": "Responsible for executing the LLM model on the computational devices (GPUs/CPUs). It manages the workers (potentially distributed), initializes model weights and KV caches, and performs the actual forward passes based on the `Scheduler`'s output.",
+      "description": "An abstract component responsible for executing the LLM model, managing model loading, distributed inference, and low-level interaction with the KV cache.",
       "complexity": "intermediate"
     },
     {
       "name": "PagedAttention",
-      "description": "A key memory management technique inspired by virtual memory and paging in operating systems. It efficiently manages the KV cache by breaking it into fixed-size blocks, allowing for non-contiguous memory allocation and reducing memory fragmentation, leading to higher throughput.",
+      "description": "A key memory optimization technique treating KV cache as a paged memory system, allowing flexible allocation and sharing of KV cache blocks among requests for higher throughput.",
       "complexity": "advanced"
-    },
-    {
-      "name": "InputProcessor / OutputProcessor",
-      "description": "The `InputProcessor` handles the parsing, validation, and tokenization of incoming user prompts, converting them into an internal format (`EngineCoreRequest`). The `OutputProcessor` takes the model's raw outputs (`EngineCoreOutputs`) and formats them into user-friendly `RequestOutput` objects, including detokenization and managing streaming.",
-      "complexity": "basic"
     }
   ],
   "notebooks": [
     {
       "id": "01",
-      "title": "Request Input & Output Processing",
-      "concept": "InputProcessor / OutputProcessor",
-      "description": "Students will build simplified versions of an `InputProcessor` to tokenize prompts and an `OutputProcessor` to detokenize generated tokens and manage streaming output.",
+      "title": "Interacting with vLLM: The User API",
+      "concept": "LLMEngine (User API)",
+      "description": "Learn how users interact with vLLM by sending requests and receiving responses, understanding the LLMEngine's role as the primary interface to the system.",
       "prerequisites": [],
-      "key_source_files": [
-        "vllm/v1/engine/input_processor.py",
-        "vllm/v1/engine/output_processor.py"
-      ],
-      "key_symbols": [
-        "InputProcessor",
-        "OutputProcessor"
-      ],
-      "learning_objectives": [
-        "By the end, students will be able to understand the lifecycle of a request's input and output within an LLM serving system.",
-        "Students will understand why tokenization and detokenization are crucial for LLM interaction."
-      ],
-      "exercise_description": "Students will implement a `SimpleInputProcessor` to tokenize a string into integer IDs and a `SimpleOutputProcessor` to detokenize a list of IDs back to a string, handling partial outputs for streaming.",
-      "visualization_idea": "Animate a prompt string being tokenized into integer IDs, then IDs being incrementally detokenized into an output string, showing the stream."
-    },
-    {
-      "id": "02",
-      "title": "PagedAttention: Efficient KV Cache Management",
-      "concept": "PagedAttention",
-      "description": "Students will simulate the core mechanics of PagedAttention, managing fixed-size KV cache blocks for multiple sequences, and understanding how it reduces memory fragmentation to improve throughput.",
-      "prerequisites": [],
-      "key_source_files": [
-        "vllm/v1/core/kv_cache_manager.py",
-        "vllm/v1/core/kv_cache_utils.py"
-      ],
-      "key_symbols": [
-        "KVCacheManager"
-      ],
-      "learning_objectives": [
-        "By the end, students will be able to understand the concept of PagedAttention and its benefits for LLM inference memory efficiency.",
-        "Students will understand how to implement a simplified KV cache block allocation and mapping system."
-      ],
-      "exercise_description": "Students will implement a `SimulatedKVCacheManager` that allocates fixed-size `KVBlock`s and maps logical sequence token positions to physical block-offset pairs, mimicking PagedAttention.",
-      "visualization_idea": "Visualize sequences requesting KV cache space, and `KVBlock`s being allocated and mapped in non-contiguous physical memory, highlighting fragmentation reduction."
-    },
-    {
-      "id": "03",
-      "title": "The LLM Model Executor",
-      "concept": "Executor",
-      "description": "Students will build a mock `Executor` that simulates running a model's forward pass, accepting batches of token IDs and returning mock logits, focusing on the interface between the scheduler and the model.",
-      "prerequisites": [],
-      "key_source_files": [
-        "vllm/v1/executor/abstract.py",
-        "vllm/v1/executor/uniproc_executor.py"
-      ],
-      "key_symbols": [
-        "ExecutorBase",
-        "UniprocessExecutor"
-      ],
-      "learning_objectives": [
-        "By the end, students will be able to understand the role of the `Executor` in abstracting model execution details.",
-        "Students will understand how to simulate a batched LLM forward pass on a computational device."
-      ],
-      "exercise_description": "Students will implement a `MockExecutor` that takes a batch of `Request` objects (with input IDs and mock KV cache mappings) and returns a batch of `MockOutput` objects (with generated token IDs), simulating a single model step.",
-      "visualization_idea": "Show a batch of input sequences entering the `Executor`, a forward pass occurring, and output tokens being generated and returned for each sequence."
-    },
-    {
-      "id": "04",
-      "title": "Request Scheduling and Continuous Batching",
-      "concept": "Scheduler",
-      "description": "Students will implement a simplified `Scheduler` that manages multiple incoming requests, prioritizes them, and constructs batches for the `Executor` using continuous batching logic, interacting with the KV cache manager.",
-      "prerequisites": [
-        "PagedAttention",
-        "Executor"
-      ],
-      "key_source_files": [
-        "vllm/v1/core/sched/interface.py",
-        "vllm/v1/core/sched/scheduler.py",
-        "vllm/v1/core/kv_cache_manager.py"
-      ],
-      "key_symbols": [
-        "LlmScheduler",
-        "KVCacheManager"
-      ],
-      "learning_objectives": [
-        "By the end, students will be able to understand continuous batching and its role in maximizing LLM throughput.",
-        "Students will understand how to design a scheduling algorithm that manages sequence states and interacts with a KV cache system."
-      ],
-      "exercise_description": "Students will implement a `SimpleScheduler` that queues incoming `requests`, selects a batch for the `MockExecutor` based on available KV cache blocks (from `SimulatedKVCacheManager`), and updates sequence states through continuous batching.",
-      "visualization_idea": "Animate multiple requests arriving, being queued, then batched together by the scheduler before being sent to the executor. Show KV cache blocks being dynamically allocated/deallocated."
-    },
-    {
-      "id": "05",
-      "title": "Orchestrating the Inference Engine Core",
-      "concept": "EngineCore",
-      "description": "Students will integrate the `Scheduler`, `Executor`, and `Input/Output Processors` into a basic `EngineCore`, demonstrating the central coordination of inference requests from intake to output.",
-      "prerequisites": [
-        "Scheduler",
-        "Executor",
-        "InputProcessor / OutputProcessor"
-      ],
-      "key_source_files": [
-        "vllm/v1/engine/core.py"
-      ],
-      "key_symbols": [
-        "EngineCore"
-      ],
-      "learning_objectives": [
-        "By the end, students will be able to understand how the core components of an LLM serving system interact.",
-        "Students will understand how to build an orchestrator that manages the flow from request intake to output generation."
-      ],
-      "exercise_description": "Students will implement a `MiniEngineCore` that initializes and coordinates the `SimpleScheduler`, `MockExecutor`, `SimpleInputProcessor`, and `SimpleOutputProcessor` to process a single end-to-end request.",
-      "visualization_idea": "Show the `MiniEngineCore` as a central hub, with requests flowing from InputProcessor, through Scheduler and Executor, and out through OutputProcessor in a loop."
-    },
-    {
-      "id": "06",
-      "title": "The User-Facing LLM Engine API",
-      "concept": "LLMEngine",
-      "description": "Students will create a high-level `LLMEngine` that provides a user-friendly, streaming interface for submitting prompts and receiving responses, utilizing the `EngineCore`.",
-      "prerequisites": [
-        "EngineCore"
-      ],
       "key_source_files": [
         "vllm/v1/engine/llm_engine.py"
       ],
       "key_symbols": [
-        "LLMEngine"
+        "LLMEngine",
+        "LLMEngine.add_request",
+        "LLMEngine.step"
       ],
       "learning_objectives": [
-        "By the end, students will be able to understand the public API and user interaction patterns of an LLM serving system.",
-        "Students will understand how to implement an asynchronous or streaming interface for LLM inference."
+        "By the end, students will be able to initiate and manage LLM inference requests through a high-level API.",
+        "Students will understand the basic lifecycle of a request from submission to output retrieval."
       ],
-      "exercise_description": "Students will implement a `UserLLMEngine` class that wraps the `MiniEngineCore`, offering a `generate(prompt: str, ...)` method that returns an iterator for streaming output.",
-      "visualization_idea": "Illustrate how a user request interacts with the `UserLLMEngine` and then flows down into the `MiniEngineCore` and its components, with generated results streaming back to the user."
+      "exercise_description": "Implement a simplified `RequestManager` class that queues requests, assigns unique IDs, and simulates marking them as 'completed' after a mock processing step.",
+      "visualization_idea": "Graphviz diagram showing the data flow of a user request entering the LLMEngine and moving into an internal queue."
+    },
+    {
+      "id": "02",
+      "title": "The Heart of vLLM: Request Orchestration with EngineCore",
+      "concept": "EngineCore",
+      "description": "Understand how the EngineCore orchestrates the entire inference lifecycle, dispatching requests and coordinating between scheduling and execution components.",
+      "prerequisites": [
+        "01"
+      ],
+      "key_source_files": [
+        "vllm/v1/engine/core.py",
+        "vllm/v1/engine/core_client.py"
+      ],
+      "key_symbols": [
+        "EngineCore",
+        "EngineCore.step",
+        "EngineCoreClient"
+      ],
+      "learning_objectives": [
+        "By the end, students will be able to describe the role of EngineCore as the central coordinating entity.",
+        "Students will understand how EngineCore manages the flow of requests between different internal components."
+      ],
+      "exercise_description": "Design a mock `EngineCore` that receives requests from a mock `LLMEngine`, logs its 'dispatch' decisions to mock `Scheduler` and `Executor` interfaces, and tracks request states.",
+      "visualization_idea": "Graphviz block diagram illustrating the interaction between LLMEngine, EngineCore, Scheduler, and Executor, highlighting data flow paths."
+    },
+    {
+      "id": "03",
+      "title": "Efficient Request Handling: The Scheduler",
+      "concept": "Scheduler",
+      "description": "Dive into how the Scheduler component manages the queue of incoming requests, prioritizes them, and prepares batches for model execution, considering resource constraints.",
+      "prerequisites": [
+        "01",
+        "02"
+      ],
+      "key_source_files": [
+        "vllm/v1/core/sched/interface.py"
+      ],
+      "key_symbols": [
+        "Scheduler",
+        "Scheduler.schedule"
+      ],
+      "learning_objectives": [
+        "By the end, students will be able to explain how requests are queued, prioritized, and selected for inference.",
+        "Students will understand the scheduler's role in managing inference throughput and latency."
+      ],
+      "exercise_description": "Implement a basic `FirstComeFirstServedScheduler` that maintains a queue of incoming requests, selects a subset to form an 'execution batch', and updates request states (e.g., pending, running, completed).",
+      "visualization_idea": "Graphviz state machine diagram showing the transitions of an inference request through different states within the scheduler (e.g., 'queued', 'scheduled', 'processing', 'completed')."
+    },
+    {
+      "id": "04",
+      "title": "Model Execution: The Executor",
+      "concept": "Executor",
+      "description": "Explore how the Executor component is responsible for loading the LLM model and performing the actual forward pass on scheduled batches of requests.",
+      "prerequisites": [
+        "01",
+        "02",
+        "03"
+      ],
+      "key_source_files": [
+        "vllm/v1/executor/abstract.py"
+      ],
+      "key_symbols": [
+        "ExecutorBase",
+        "ExecutorBase.execute_model"
+      ],
+      "learning_objectives": [
+        "By the end, students will be able to describe the executor's responsibility in loading and running LLM models.",
+        "Students will understand the interface between the scheduler and the low-level model inference operations."
+      ],
+      "exercise_description": "Create a mock `SimpleModelExecutor` class that takes a batch of 'token IDs' and simulates generating new token IDs, along with managing simplified KV cache updates, returning the generated tokens and 'completion' status.",
+      "visualization_idea": "High-level Graphviz data flow diagram showing a batch of requests entering the Executor, interacting with a 'mock LLM' and 'mock KV cache', and producing output tokens."
+    },
+    {
+      "id": "05",
+      "title": "Memory Efficiency: PagedAttention KV Cache",
+      "concept": "PagedAttention",
+      "description": "Understand the advanced PagedAttention technique for managing KV cache memory, enabling higher throughput and efficient resource utilization by treating KV cache as a paged memory system.",
+      "prerequisites": [
+        "01",
+        "02",
+        "03",
+        "04"
+      ],
+      "key_source_files": [
+        "vllm/v1/worker/cache_engine.py",
+        "vllm/v1/core/kv_cache_utils.py",
+        "vllm/v1/core/sched/interface.py"
+      ],
+      "key_symbols": [
+        "CacheEngine",
+        "BlockTable"
+      ],
+      "learning_objectives": [
+        "By the end, students will be able to explain the core principles of PagedAttention for KV cache management.",
+        "Students will understand how block allocation and deallocation contribute to memory efficiency and throughput."
+      ],
+      "exercise_description": "Implement a simplified `BlockAllocator` that manages a fixed pool of 'KV cache pages', allocating them to simulated requests, handling block extensions for growing sequences, and correctly deallocating blocks upon request completion.",
+      "visualization_idea": "Matplotlib diagram showing a grid representing physical KV cache blocks, with different colors indicating allocation to various 'simulated requests' and highlighting fragmented vs. contiguous allocation scenarios."
     }
   ],
   "capstone": {
-    "title": "mini-vLLM",
-    "description": "Students will build a simplified, end-to-end LLM inference server that leverages the key concepts of vLLM: request processing, efficient KV cache management, continuous batching, and model execution. This capstone will solidify their understanding of how these components integrate to achieve high-throughput LLM serving.",
+    "title": "mini-vLLM Inference Server",
+    "description": "Students will build a simplified, end-to-end LLM inference server that processes user requests, schedules them based on availability, executes a mock model for token generation, and manages a basic KV cache using PagedAttention principles, synthesizing all core vLLM concepts.",
     "estimated_hours": 4,
     "modules": [
       {
-        "name": "RequestQueue",
-        "description": "Manages incoming inference requests, holding them until the scheduler can process them. Also handles basic input processing (tokenization).",
-        "depends_on": [],
-        "interface_sketch": "import collections\nfrom typing import List, Dict, Any\n\nclass Request:\n    def __init__(self, request_id: str, prompt_tokens: List[int], max_tokens: int):\n        self.request_id = request_id\n        self.prompt_tokens = prompt_tokens\n        self.output_tokens: List[int] = []\n        self.status: str = \"PENDING\" # PENDING, RUNNING, COMPLETED, ERROR\n        self.max_tokens = max_tokens\n        self.kv_cache_block_ids: List[int] = [] # Physically allocated blocks\n\nclass RequestQueue:\n    def __init__(self, tokenizer):\n        self._queue = collections.deque() # Stores request_ids\n        self._requests: Dict[str, Request] = {}\n        self.tokenizer = tokenizer\n\n    def add_request(self, prompt: str, max_tokens: int = 16) -> Request:\n        request_id = f\"req-{len(self._requests)}\"\n        prompt_tokens = self.tokenizer.encode(prompt)\n        request = Request(request_id, prompt_tokens, max_tokens)\n        self._queue.append(request_id)\n        self._requests[request_id] = request\n        return request\n\n    def get_pending_requests(self) -> List[Request]:\n        return [self._requests[req_id] for req_id in self._queue if self._requests[req_id].status == \"PENDING\"]\n\n    def get_request(self, request_id: str) -> Request:\n        return self._requests[request_id]\n\n    def remove_request(self, request_id: str):\n        if request_id in self._requests:\n            # In a real system, the scheduler would manage removal from its queues.\n            # For this capstone, we simply mark completed and assume eventually removed.\n            # For now, let's just remove it if status is completed.\n            # This simplifies the get_pending_requests for capstone.\n            if self._requests[request_id].status in (\"COMPLETED\", \"ERROR\"):\n                # Remove from deque if present (might be redundant if scheduler removed)\n                try: self._queue.remove(request_id) # O(N) but simple for capstone\n                except ValueError: pass\n                del self._requests[request_id]\n",
-        "test_behaviors": [
-          "Given a prompt, `add_request` should tokenize it and store a new `Request` object with 'PENDING' status.",
-          "Calling `get_pending_requests` should return only requests with 'PENDING' status."
-        ]
-      },
-      {
-        "name": "KVCacheSimulator",
-        "description": "Manages the allocation and deallocation of fixed-size KV cache blocks for sequences, simulating PagedAttention's memory management.",
-        "depends_on": [],
-        "interface_sketch": "from typing import Dict, List\n\nclass KVCacheSimulator:\n    def __init__(self, total_blocks: int, block_size: int):\n        self.total_blocks = total_blocks\n        self.block_size = block_size\n        self.free_blocks = list(range(total_blocks))\n        self.allocated_blocks: Dict[str, List[int]] = {} # request_id -> list of block_ids\n\n    def allocate_blocks(self, request_id: str, num_blocks: int) -> List[int]:\n        if len(self.free_blocks) < num_blocks:\n            raise ValueError(\"Not enough free KV cache blocks\")\n        \n        allocated = [self.free_blocks.pop(0) for _ in range(num_blocks)]\n        self.allocated_blocks[request_id] = allocated\n        return allocated\n\n    def free_blocks_for_request(self, request_id: str):\n        if request_id in self.allocated_blocks:\n            for block_id in self.allocated_blocks[request_id]:\n                self.free_blocks.append(block_id)\n            del self.allocated_blocks[request_id]\n            self.free_blocks.sort() # Keep sorted for deterministic behavior\n\n    def get_num_free_blocks(self) -> int:\n        return len(self.free_blocks)\n",
-        "test_behaviors": [
-          "Calling `allocate_blocks` should return unique block IDs and decrease the count of free blocks.",
-          "Calling `free_blocks_for_request` should return allocated blocks to the free pool and increase the count of free blocks.",
-          "Attempting to allocate more blocks than available should raise a `ValueError`."
-        ]
-      },
-      {
-        "name": "MockModelRunner",
-        "description": "Simulates an LLM's forward pass, accepting a batch of inputs and generating next token IDs for each request in the batch.",
-        "depends_on": [],
-        "interface_sketch": "from typing import List, Dict, Any\n# Assuming Request class is available (e.g., from RequestQueue definition)\n\nclass MockModelRunner:\n    def __init__(self, vocab_size: int = 32000):\n        self.vocab_size = vocab_size\n        self.mock_logits_counter = 0\n\n    def run_forward_pass(self, batch_requests: List[Any]) -> Dict[str, int]: # Any assumes Request\n        # Simulates generating a single next token for each request in the batch\n        generated_tokens = {}\n        for req in batch_requests:\n            # Mock token generation: just increment a counter within vocab size\n            next_token_id = (self.mock_logits_counter % (self.vocab_size - 1)) + 1\n            self.mock_logits_counter += 1\n            generated_tokens[req.request_id] = next_token_id\n        return generated_tokens\n",
-        "test_behaviors": [
-          "Given a batch of requests, `run_forward_pass` should return a dictionary of next token IDs, one for each request.",
-          "The generated token IDs should be within the mock vocabulary range (e.g., >0 and <vocab_size)."
-        ]
-      },
-      {
-        "name": "BatchScheduler",
-        "description": "Prioritizes and batches requests for the model, manages their state (running, completed), and orchestrates KV cache block allocation and deallocation.",
+        "name": "MockLLMEngine",
+        "description": "A simplified user-facing API for adding and managing inference requests.",
         "depends_on": [
-          "RequestQueue",
-          "KVCacheSimulator",
-          "MockModelRunner"
+          "MiniEngineCore"
         ],
-        "interface_sketch": "from typing import List, Dict, Any\n# Assuming Request class and KVCacheSimulator are available\n\nclass BatchScheduler:\n    def __init__(self, kv_cache_simulator: Any): # Any assumes KVCacheSimulator\n        self.kv_cache_simulator = kv_cache_simulator\n        self.running_requests: Dict[str, Any] = {} # request_id -> Request\n\n    def schedule(self, pending_requests: List[Any], max_batch_size: int) -> List[Any]: # Any assumes Request\n        batch: List[Any] = []\n        \n        # Add existing running requests first (continuous batching)\n        for req_id in list(self.running_requests.keys()): # Iterate over copy as dict might change\n            req = self.running_requests[req_id]\n            if req.status == \"RUNNING\":\n                batch.append(req)\n            \n        # Try to add new requests from pending queue\n        for req in pending_requests:\n            if req.status == \"PENDING\" and len(batch) < max_batch_size:\n                # Simplified block allocation: allocate for prompt + 1 initial token\n                blocks_needed_for_prompt = (len(req.prompt_tokens) + self.kv_cache_simulator.block_size - 1) // self.kv_cache_simulator.block_size\n                initial_blocks_estimate = blocks_needed_for_prompt + 1 # For prompt and first generated token\n\n                if self.kv_cache_simulator.get_num_free_blocks() >= initial_blocks_estimate:\n                    try:\n                        req.kv_cache_block_ids = self.kv_cache_simulator.allocate_blocks(req.request_id, initial_blocks_estimate)\n                        req.status = \"RUNNING\"\n                        batch.append(req)\n                        self.running_requests[req.request_id] = req\n                    except ValueError:\n                        pass # Not enough blocks, skip for now\n        return batch\n\n    def update_request_status(self, request: Any, new_status: str):\n        request.status = new_status\n        if new_status in (\"COMPLETED\", \"ERROR\"):\n            self.kv_cache_simulator.free_blocks_for_request(request.request_id)\n            if request.request_id in self.running_requests:\n                del self.running_requests[request.request_id]\n\n    def add_token_to_request(self, request: Any, new_token_id: int):\n        request.output_tokens.append(new_token_id)\n        # Check if more blocks are needed for generated tokens\n        current_total_tokens = len(request.prompt_tokens) + len(request.output_tokens)\n        blocks_needed = (current_total_tokens + self.kv_cache_simulator.block_size - 1) // self.kv_cache_simulator.block_size\n        \n        current_blocks_allocated = len(request.kv_cache_block_ids)\n        if blocks_needed > current_blocks_allocated:\n            num_new_blocks = blocks_needed - current_blocks_allocated\n            try:\n                new_blocks = self.kv_cache_simulator.allocate_blocks(request.request_id, num_new_blocks)\n                request.kv_cache_block_ids.extend(new_blocks)\n            except ValueError:\n                # Out of blocks during generation. Mark as error and free resources.\n                self.update_request_status(request, \"ERROR\")\n",
+        "interface_sketch": "class MockLLMEngine:\n    def __init__(self, core_client):\n        ...\n    def add_request(self, prompt: str, request_id: str):\n        ...\n    def step(self):\n        ...\n    def get_outputs(self) -> dict: # {request_id: output_text}\n        ...",
         "test_behaviors": [
-          "Given pending requests and available KV cache blocks, `schedule` should add new requests to the batch and allocate initial blocks for them.",
-          "If a request is `RUNNING`, it should be prioritized and included in the next batch (continuous batching).",
-          "When a request completes, `update_request_status` should free its allocated KV cache blocks.",
-          "If `add_token_to_request` requires more blocks and none are available, the request's status should change to 'ERROR'."
+          "Given a prompt, add_request should add it to an internal queue and send to core_client.",
+          "After step() is called, completed requests should be available via get_outputs() with correct results.",
+          "Adding a request with a duplicate ID should raise ValueError."
         ]
       },
       {
-        "name": "MiniLLMEngine",
-        "description": "The top-level class that integrates all components (`RequestQueue`, `KVCacheSimulator`, `MockModelRunner`, `BatchScheduler`) to provide an end-to-end LLM inference API with streaming output.",
+        "name": "MiniEngineCore",
+        "description": "The central orchestrator, coordinating request flow between the scheduler and executor.",
         "depends_on": [
-          "RequestQueue",
-          "KVCacheSimulator",
-          "MockModelRunner",
-          "BatchScheduler"
+          "BasicScheduler",
+          "DummyExecutor"
         ],
-        "interface_sketch": "import time\nfrom typing import Iterator, List, Dict, Any\nfrom collections import deque\n\n# SimpleTokenizer for capstone purposes\nclass SimpleTokenizer:\n    def encode(self, text: str) -> List[int]:\n        return [ord(c) for c in text if c.isalpha() or c.isspace()] # Simple char-to-int\n    def decode(self, tokens: List[int]) -> str:\n        return \"\".join([chr(t) for t in tokens])\n\nclass MiniLLMEngine:\n    def __init__(self, total_kv_blocks: int = 100, kv_block_size: int = 4, max_batch_size: int = 4):\n        self.tokenizer = SimpleTokenizer()\n        self.request_queue = RequestQueue(self.tokenizer)\n        self.kv_cache_simulator = KVCacheSimulator(total_blocks=total_kv_blocks, block_size=kv_block_size)\n        self.model_runner = MockModelRunner(vocab_size=128) # ASCII range for simple tokenizer\n        self.scheduler = BatchScheduler(self.kv_cache_simulator)\n        self.max_batch_size = max_batch_size\n        self._request_outputs: Dict[str, deque] = {} # request_id -> deque of generated tokens\n\n    def _step(self):\n        # 1. Get pending requests from queue and running requests from scheduler\n        pending_requests = self.request_queue.get_pending_requests()\n        \n        # 2. Schedule a batch for execution\n        current_batch = self.scheduler.schedule(pending_requests, self.max_batch_size)\n\n        if not current_batch:\n            time.sleep(0.01) # Simulate waiting if nothing to do\n            return\n\n        # 3. Execute the model for the current batch\n        generated_tokens = self.model_runner.run_forward_pass(current_batch)\n\n        # 4. Update request states and process generated tokens\n        for req in current_batch:\n            if req.status == \"RUNNING\" and req.request_id in generated_tokens:\n                token_id = generated_tokens[req.request_id]\n                self.scheduler.add_token_to_request(req, token_id)\n                \n                if req.request_id not in self._request_outputs:\n                    self._request_outputs[req.request_id] = deque()\n                self._request_outputs[req.request_id].append(token_id)\n                \n                # Check completion conditions\n                if req.status == \"RUNNING\" and len(req.output_tokens) >= req.max_tokens:\n                    self.scheduler.update_request_status(req, \"COMPLETED\")\n                    self.request_queue.remove_request(req.request_id) # Remove from queue\n            elif req.status == \"ERROR\":\n                # If scheduler marked as ERROR, ensure it's removed from queue\n                self.request_queue.remove_request(req.request_id)\n\n    def generate(self, prompt: str, max_tokens: int = 16) -> Iterator[str]:\n        request = self.request_queue.add_request(prompt, max_tokens)\n        request_id = request.request_id\n        \n        last_output_len = 0\n        while request.status not in (\"COMPLETED\", \"ERROR\"):\n            self._step()\n            if request_id in self._request_outputs:\n                current_output_tokens = list(self._request_outputs[request_id])\n                if len(current_output_tokens) > last_output_len:\n                    new_tokens = current_output_tokens[last_output_len:]\n                    yield self.tokenizer.decode(new_tokens)\n                    last_output_len = len(current_output_tokens)\n            time.sleep(0.005) # Yield control, simulate async wait\n        \n        # Yield any remaining tokens after completion if _step() generated some\n        if request_id in self._request_outputs and len(self._request_outputs[request_id]) > last_output_len:\n            yield self.tokenizer.decode(list(self._request_outputs[request_id])[last_output_len:])\n\n        if request.status == \"ERROR\":\n            raise RuntimeError(f\"Request {request_id} failed with status: {request.status}. Output: {self.tokenizer.decode(list(self._request_outputs.get(request_id, [])))}\")\n",
+        "interface_sketch": "class MiniEngineCore:\n    def __init__(self, scheduler, executor):\n        ...\n    def process_new_requests(self, new_requests: list):\n        # Takes new requests from MockLLMEngine\n        ...\n    def execute_step(self) -> dict: # Returns completed outputs\n        ...",
         "test_behaviors": [
-          "Calling `generate` with a prompt should return an iterator that yields generated token chunks over time.",
-          "The `generate` method should eventually yield all `max_tokens` for a request unless an error occurs.",
-          "Multiple concurrent calls to `generate` should be handled, demonstrating continuous batching via internal `_step` calls."
+          "Given new requests, process_new_requests should pass them to the scheduler.",
+          "execute_step should call the scheduler's schedule method and the executor's execute method with a batch.",
+          "If the scheduler returns no pending requests, execute_step should not call the executor and return an empty dict."
+        ]
+      },
+      {
+        "name": "BasicScheduler",
+        "description": "Manages request queues, prioritizes them, and interacts with the KV block manager for memory allocation.",
+        "depends_on": [
+          "SimpleKVBlockManager"
+        ],
+        "interface_sketch": "class BasicScheduler:\n    def __init__(self, kv_block_manager):\n        ...\n    def add_request(self, request_id: str, prompt: str, max_output_len: int):\n        ...\n    def schedule(self) -> list: # Returns a list of (request_id, block_table) for execution\n        ...\n    def update_request_state(self, request_id: str, new_token: str, is_finished: bool):\n        ...",
+        "test_behaviors": [
+          "Adding a request should allocate initial KV cache blocks via SimpleKVBlockManager.",
+          "schedule() should return pending requests with valid block tables when blocks are available.",
+          "Updating a request state as finished should deallocate its KV cache blocks.",
+          "schedule() should prioritize requests based on arrival time (FCFS principle)."
+        ]
+      },
+      {
+        "name": "DummyExecutor",
+        "description": "Simulates the LLM model execution, generating mock tokens for a given prompt.",
+        "depends_on": [],
+        "interface_sketch": "class DummyExecutor:\n    def __init__(self, mock_responses: dict):\n        # mock_responses = {'prompt': 'response'}\n        ...\n    def execute_batch(self, scheduled_requests: list) -> list: # Returns list of (request_id, new_token, is_finished)\n        ...",
+        "test_behaviors": [
+          "Given a request with a known prompt, execute_batch should return the expected next token from its mock response.",
+          "If the request reaches its max tokens or the mock response ends, it should be marked as finished.",
+          "Executing an unknown prompt should return a default or error token and mark as finished."
+        ]
+      },
+      {
+        "name": "SimpleKVBlockManager",
+        "description": "Manages the allocation and deallocation of fixed-size KV cache blocks, mimicking PagedAttention.",
+        "depends_on": [],
+        "interface_sketch": "class SimpleKVBlockManager:\n    def __init__(self, num_total_blocks: int):\n        ...\n    def allocate(self, num_blocks: int) -> list: # Returns list of block IDs\n        ...\n    def free(self, block_ids: list):\n        ...\n    def get_available_blocks(self) -> int:\n        ...",
+        "test_behaviors": [
+          "allocate(N) should return N unique block IDs if N blocks are available.",
+          "allocate(N) should raise an error if N blocks are not available (out of memory).",
+          "free(block_ids) should mark blocks as available for subsequent reuse.",
+          "After allocating and freeing blocks, the number of available blocks should return to its initial state."
         ]
       }
     ],
     "integration_test": {
-      "description": "Submit multiple concurrent inference requests to the `MiniLLMEngine` and verify that all requests complete, generating the expected number of tokens, and demonstrating throughput benefits of batching.",
-      "setup_code": "import threading\n\nengine = MiniLLMEngine(total_kv_blocks=50, kv_block_size=4, max_batch_size=4)\nprompts = [\n    \"Hello, world\",\n    \"How are you\",\n    \"What is vLLM\",\n    \"Tell me a story\",\n    \"Python is great\",\n    \"Artificial intelligence is\",\n    \"Quantum computing will change\",\n    \"The quick brown fox jumps\",\n]\nmax_tokens_per_request = 10\nresults = {}\n\ndef run_inference(prompt, req_id):\n    full_output = []\n    try:\n        for token_chunk in engine.generate(prompt, max_tokens=max_tokens_per_request):\n            full_output.append(token_chunk)\n        results[req_id] = (\"\".join(full_output), \"COMPLETED\", len(\"\".join(full_output)))\n    except RuntimeError as e:\n        results[req_id] = (str(e), \"ERROR\", 0)\n\nthreads = []\nfor i, prompt in enumerate(prompts):\n    thread = threading.Thread(target=run_inference, args=(prompt, f\"req_{i}\"))\n    threads.append(thread)\n    thread.start()\n\nfor thread in threads:\n    thread.join()\n",
-      "success_metric": "All submitted requests (`len(prompts)`) should have a status of 'COMPLETED' in the `results` dictionary.",
-      "expected_output_check": "For each completed request, the length of its generated output (token count) should be exactly `max_tokens_per_request`."
+      "description": "Test the entire mini-vLLM system by submitting multiple concurrent requests, ensuring correct sequence generation, proper KV cache utilization, and graceful handling of memory limits.",
+      "setup_code": "mock_model_responses = {\n    \"hello world\": \"hello world, how are you?\",\n    \"tell me a joke\": \"Why don't scientists trust atoms? Because they make up everything!\",\n    \"short query\": \"short answer\"\n}\nkv_cache_size = 5 # Small cache to test allocation/deallocation\nengine = MockLLMEngine(MiniEngineCore(BasicScheduler(SimpleKVBlockManager(kv_cache_size)), DummyExecutor(mock_model_responses)))\nengine.add_request(\"hello world\", \"req1\")\nengine.add_request(\"tell me a joke\", \"req2\")\nengine.add_request(\"short query\", \"req3\")",
+      "success_metric": "All submitted requests successfully complete, their outputs match the mock responses, and the system does not crash due to out-of-memory errors (even with limited `kv_cache_size`).",
+      "expected_output_check": "Verify that `engine.get_outputs()` contains 'req1': 'hello world, how are you?', 'req2': 'Why don't scientists trust atoms? Because they make up everything!', and 'req3': 'short answer'. Verify that no errors related to KV cache block allocation are raised during execution."
     }
   }
 }

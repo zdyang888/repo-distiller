@@ -1,335 +1,389 @@
 """
-Module: interfaces
-Description:
-    This file defines the abstract base classes (ABCs) for the core components
-    of a simplified LLM inference engine, designed for a capstone project.
-    The architecture is inspired by systems like vLLM and demonstrates key
-    concepts such as continuous batching, paged attention-style memory
-    management, and request scheduling.
+Interfaces for a simplified LLM Inference Engine Capstone Project.
 
-    The primary components are:
-    - Request: A data class representing a single inference request.
-    - IRequestQueue: Manages incoming requests before they are scheduled.
-    - IKVCacheSimulator: Simulates the allocation and management of KV cache
-      memory blocks.
-    - IModelRunner: Represents the LLM, responsible for executing a forward
-      pass on a batch of requests.
-    - IBatchScheduler: The core orchestrator that creates batches from running
-      and pending requests, manages request states, and interacts with the
-      KV cache simulator.
-    - IMiniLLMEngine: The top-level facade that integrates all components and
-      provides the end-user API for generating text.
+This file defines the abstract base classes (ABCs) that form the contract
+for each component of the inference engine. The architecture is designed to be
+modular, allowing for different implementations of each component to be
+swapped in.
+
+The overall data flow is as follows:
+1.  A user-facing client (`MockLLMEngine`) accepts new inference requests.
+2.  The `MockLLMEngine` forwards these requests to the central orchestrator,
+    the `MiniEngineCore`.
+3.  The `MiniEngineCore` passes new requests to the `BasicScheduler`.
+4.  The `BasicScheduler` manages request queues. It uses a
+    `SimpleKVBlockManager` to check for memory availability (KV cache blocks)
+    and decide which requests to run in the next iteration.
+5.  The `MiniEngineCore` takes the scheduled batch of requests and sends them
+    to the `DummyExecutor` for processing.
+6.  The `DummyExecutor` simulates model execution, generating the next token
+    for each request in the batch.
+7.  The `MiniEngineCore` receives the results and updates the `BasicScheduler`
+    with the new state of each request (e.g., new token, finished status).
+8.  This cycle repeats, with the `MockLLMEngine`'s `step()` method driving
+    each iteration of the engine's execution loop.
 """
 
 from abc import ABC, abstractmethod
-from collections import deque
-from typing import Iterator, Any
+from typing import Any, Dict, List, Tuple
 
 
-# --------------------------------------------------------------------------
-# Data Structures and Concrete Utility Classes
-# --------------------------------------------------------------------------
-
-class Request:
-    """
-    A data class representing a single inference request.
-
-    This class holds all state associated with a request as it moves through
-    the system, from pending to running to completion.
-    """
-
-    def __init__(self, request_id: str, prompt_tokens: list[int], max_tokens: int):
-        """
-        Initializes a new inference Request.
-
-        Args:
-            request_id: A unique identifier for the request.
-            prompt_tokens: The list of token IDs for the input prompt.
-            max_tokens: The maximum number of tokens to generate for this request.
-        """
-        self.request_id: str = request_id
-        self.prompt_tokens: list[int] = prompt_tokens
-        self.output_tokens: list[int] = []
-        self.status: str = "PENDING"  # PENDING, RUNNING, COMPLETED, ERROR
-        self.max_tokens: int = max_tokens
-        self.kv_cache_block_ids: list[int] = []  # Physically allocated blocks
-
-
-class SimpleTokenizer:
-    """A simple, concrete tokenizer for demonstration purposes."""
-
-    def encode(self, text: str) -> list[int]:
-        """Encodes a string into a list of token IDs (ASCII values)."""
-        # Simple char-to-int for alphabetic characters and spaces
-        return [ord(c) for c in text if c.isalpha() or c.isspace()]
-
-    def decode(self, tokens: list[int]) -> str:
-        """Decodes a list of token IDs back into a string."""
-        return "".join([chr(t) for t in tokens])
-
-
-# --------------------------------------------------------------------------
-# Abstract Base Classes (Interfaces)
-# --------------------------------------------------------------------------
-
-class IRequestQueue(ABC):
-    """
-    Manages incoming inference requests, holding them until they can be processed.
-
-    This component is the entry point for new requests into the system. It is
-    responsible for tokenizing the raw prompt text and creating a structured
-    Request object for the scheduler to consume.
-    """
-
-    @abstractmethod
-    def add_request(self, prompt: str, max_tokens: int) -> Request:
-        """
-        Tokenizes a prompt and adds it as a new request to the queue.
-
-        The contract is to create a `Request` object with a unique ID,
-        tokenize the prompt, store the request, and set its initial status
-        to 'PENDING'.
-
-        Args:
-            prompt: The input text to be processed by the LLM.
-            max_tokens: The maximum number of tokens to generate.
-
-        Returns:
-            The newly created Request object.
-        """
-        # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    @abstractmethod
-    def get_pending_requests(self) -> list[Request]:
-        """
-        Retrieves all requests that are currently in the 'PENDING' state.
-
-        The contract is to return a list of requests that have been added but
-        not yet scheduled for execution by the BatchScheduler.
-
-        Returns:
-            A list of Request objects with 'PENDING' status.
-        """
-        # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    @abstractmethod
-    def get_request(self, request_id: str) -> Request | None:
-        """
-        Retrieves a specific request by its ID.
-
-        Args:
-            request_id: The unique identifier of the request to retrieve.
-
-        Returns:
-            The Request object if found, otherwise None.
-        """
-        # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    @abstractmethod
-    def remove_request(self, request_id: str) -> None:
-        """
-        Removes a completed or failed request from the internal tracking.
-
-        This method is typically called by the scheduler after a request has
-        finished processing to clean up resources.
-
-        Args:
-            request_id: The unique identifier of the request to remove.
-        """
-        # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement this method.")
-
-
-class IKVCacheSimulator(ABC):
+class SimpleKVBlockManager(ABC):
     """
     Manages the allocation and deallocation of fixed-size KV cache blocks.
 
-    This class simulates the core memory management functionality of systems
-    like PagedAttention, providing a pool of memory blocks that can be
-    dynamically allocated to and freed from running requests.
+    This class abstracts the memory management of the KV cache, mimicking
+    systems like PagedAttention. It keeps track of a pool of memory blocks
+    and provides methods to allocate, free, and query the number of
+    available blocks.
     """
 
     @abstractmethod
-    def allocate_blocks(self, request_id: str, num_blocks: int) -> list[int]:
+    def __init__(self, num_total_blocks: int):
         """
-        Allocates a specified number of KV cache blocks for a given request.
-
-        This method must find `num_blocks` free blocks, mark them as allocated
-        to `request_id`, and return their unique identifiers. It must also
-        decrease the count of available free blocks.
+        Initializes the block manager with a fixed total number of blocks.
 
         Args:
-            request_id: The unique identifier of the request requiring blocks.
+            num_total_blocks: The total number of KV cache blocks available in
+                              the pool.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def allocate(self, num_blocks: int) -> list[int]:
+        """
+        Allocates a specified number of blocks from the free pool.
+
+        CONTRACT:
+        - Must return a list of unique integer block IDs.
+        - The length of the returned list must be equal to `num_blocks`.
+        - If not enough blocks are available to satisfy the request, this
+          method must raise an exception (e.g., ValueError or a custom
+          OutOfMemoryError).
+        - The allocated blocks must be marked as 'in-use' and should not be
+          available for subsequent allocations until freed.
+
+        Args:
             num_blocks: The number of blocks to allocate.
 
         Returns:
-            A list of unique integer block IDs that have been allocated.
+            A list of integers representing the unique IDs of the allocated blocks.
 
         Raises:
-            ValueError: If not enough free blocks are available to fulfill
-                        the allocation request.
+            ValueError: If `num_blocks` cannot be satisfied due to insufficient
+                        available blocks.
         """
         # TODO: Implement this
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    def free_blocks_for_request(self, request_id: str) -> None:
+    def free(self, block_ids: list[int]) -> None:
         """
-        Returns all blocks allocated to a request back to the free pool.
+        Returns a list of block IDs to the free pool.
 
-        This is called when a request is completed, aborted, or encounters an
-        error to reclaim its memory resources.
+        CONTRACT:
+        - Must mark the blocks corresponding to the given `block_ids` as
+          'available'.
+        - After this call, the freed blocks must be available for subsequent
+          `allocate` calls.
+        - Attempting to free a block that is already free or invalid may
+          result in an error or be ignored, depending on the implementation's
+          strictness.
 
         Args:
-            request_id: The ID of the request whose blocks should be freed.
+            block_ids: A list of block IDs to deallocate.
         """
         # TODO: Implement this
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    def get_num_free_blocks(self) -> int:
+    def get_available_blocks(self) -> int:
         """
-        Returns the total number of currently available KV cache blocks.
+        Returns the current number of available (free) blocks.
+
+        CONTRACT:
+        - Must return a non-negative integer representing the count of blocks
+          that can currently be allocated.
 
         Returns:
-            An integer count of free blocks.
+            The number of free blocks.
         """
         # TODO: Implement this
         raise NotImplementedError("Subclasses must implement this method.")
 
 
-class IModelRunner(ABC):
+class DummyExecutor(ABC):
     """
-    Simulates an LLM's forward pass for a batch of requests.
+    Simulates the LLM model execution for a batch of requests.
 
-    This interface represents the model execution component. Its core
-    responsibility is to take a batch of requests and produce the next
-    token for each of them.
+    This class takes a batch of scheduled requests and generates the next token
+    for each, based on a predefined mapping of prompts to responses. It is
+    a stand-in for a real model runner (e.g., a PyTorch model).
     """
 
     @abstractmethod
-    def run_forward_pass(self, batch_requests: list[Request]) -> dict[str, int]:
+    def __init__(self, mock_responses: dict[str, str]):
         """
-        Executes a single forward pass for a batch of requests.
-
-        The contract is to take a list of `Request` objects and return a
-        dictionary mapping each request's ID to its newly generated next
-        token ID.
+        Initializes the executor with a dictionary of mock prompt-response pairs.
 
         Args:
-            batch_requests: A list of `Request` objects to process.
+            mock_responses: A dictionary where keys are prompts and values are
+                            the complete expected output strings.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def execute_batch(self, scheduled_requests: list[Any]) -> list[tuple[str, str, bool]]:
+        """
+        Processes a batch of requests and produces the next token for each.
+
+        CONTRACT:
+        - Must iterate through `scheduled_requests` and determine the next token
+          for each one.
+        - The `is_finished` flag in the return tuple must be True if the
+          generated token is the last one for that request (based on the mock
+          response) or if a generation limit is reached.
+        - If a request's prompt is not found in the mock responses, it should
+          handle it gracefully (e.g., return a default token and mark as
+          finished).
+
+        Args:
+            scheduled_requests: A list of requests to be processed. The exact
+                                structure of each item is determined by the
+                                scheduler, but it must contain enough information
+                                to identify the request and its current state
+                                (e.g., request_id, prompt, tokens generated so far).
 
         Returns:
-            A dictionary where keys are request_ids and values are the
-            generated next token ID for that request.
+            A list of tuples, where each tuple contains:
+            - request_id (str): The ID of the request.
+            - new_token (str): The newly generated token.
+            - is_finished (bool): True if the request has completed generation.
         """
         # TODO: Implement this
         raise NotImplementedError("Subclasses must implement this method.")
 
 
-class IBatchScheduler(ABC):
+class BasicScheduler(ABC):
     """
-    Prioritizes, batches requests, and orchestrates KV cache management.
+    Manages request queues, scheduling, and KV cache block allocation.
 
-    This is the central controller of the inference engine. It decides which
-    requests to run in the next model pass (continuous batching), allocates
-    and deallocates KV cache blocks as needed, and updates the status of
-    requests as they progress.
+    This class is responsible for maintaining queues of waiting, running, and
+    finished requests. In each scheduling step, it decides which requests can
+    be processed based on memory availability from the KVBlockManager,
+    implementing a scheduling policy (e.g., First-Come, First-Served).
     """
 
     @abstractmethod
-    def schedule(self, pending_requests: list[Request], max_batch_size: int) -> list[Request]:
+    def __init__(self, kv_block_manager: SimpleKVBlockManager):
         """
-        Creates a new batch for the next model forward pass.
-
-        The contract is to:
-        1. Prioritize currently running requests to include them in the new batch
-           (this is the core of continuous batching).
-        2. Attempt to add new 'PENDING' requests to the batch if there is space
-           and sufficient KV cache blocks are available.
-        3. For new requests, allocate initial KV cache blocks and update their
-           status to 'RUNNING'.
+        Initializes the scheduler with a KV block manager.
 
         Args:
-            pending_requests: A list of requests waiting to be scheduled.
-            max_batch_size: The maximum number of requests allowed in the batch.
+            kv_block_manager: An instance of a SimpleKVBlockManager (or its
+                              subclass) to manage KV cache memory.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def add_request(self, request_id: str, prompt: str, max_output_len: int) -> None:
+        """
+        Adds a new request to the scheduler's queue.
+
+        CONTRACT:
+        - Must add the new request to a 'waiting' or 'pending' queue.
+        - May attempt to pre-allocate initial KV cache blocks for the prompt
+          tokens. If allocation fails, the request should be kept in the
+          waiting queue until memory is available.
+
+        Args:
+            request_id: A unique identifier for the request.
+            prompt: The input text for the language model.
+            max_output_len: The maximum number of tokens to generate for this request.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def schedule(self) -> list[Any]:
+        """
+        Determines which requests to run in the next execution step.
+
+        CONTRACT:
+        - Must implement a scheduling logic (e.g., FCFS).
+        - Must check the `SimpleKVBlockManager` for available blocks before
+          scheduling a new request or continuing a running one that needs more
+          memory.
+        - Must return a list of requests that are ready for execution by the
+          DummyExecutor. Each item in the list should contain at least the
+          request_id and its associated KV block table.
+        - If no requests can be scheduled (e.g., all are waiting for memory),
+          it must return an empty list.
 
         Returns:
-            A list of `Request` objects that constitute the batch for the
-            next forward pass.
+            A list of scheduled requests ready for the executor. The exact
+            structure of each item is an implementation detail.
         """
         # TODO: Implement this
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    def update_request_status(self, request: Request, new_status: str) -> None:
+    def update_request_state(self, request_id: str, new_token: str, is_finished: bool) -> None:
         """
-        Updates the status of a request and performs associated cleanup.
+        Updates the state of a request after an execution step.
 
-        The contract is to change the request's status. If the new status is
-        'COMPLETED' or 'ERROR', it must also free the KV cache blocks
-        associated with that request.
+        CONTRACT:
+        - Must append `new_token` to the specified request's generated output.
+        - If `is_finished` is True, the request must be moved to a 'finished'
+          state, and all its associated KV cache blocks must be freed using the
+          `SimpleKVBlockManager`.
+        - If `is_finished` is False, the scheduler may need to allocate a new
+          KV block for the new token if the current one is full.
 
         Args:
-            request: The `Request` object to update.
-            new_status: The new status string (e.g., "COMPLETED", "ERROR").
-        """
-        # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    @abstractmethod
-    def add_token_to_request(self, request: Request, new_token_id: int) -> None:
-        """
-        Appends a newly generated token to a request's output.
-
-        The contract is to add the `new_token_id` to the request's output list
-        and check if additional KV cache blocks are needed to store the state
-        for the new token. If more blocks are needed, it must try to allocate
-        them. If allocation fails, the request's status should be set to 'ERROR'.
-
-        Args:
-            request: The `Request` object to which the token should be added.
-            new_token_id: The ID of the token that was just generated.
+            request_id: The ID of the request to update.
+            new_token: The token that was just generated.
+            is_finished: A boolean flag indicating if the request is now complete.
         """
         # TODO: Implement this
         raise NotImplementedError("Subclasses must implement this method.")
 
 
-class IMiniLLMEngine(ABC):
+class MiniEngineCore(ABC):
     """
-    The top-level class that integrates all components for end-to-end inference.
+    The central orchestrator of the inference engine.
 
-    This interface provides the public API for the LLM inference engine. It
-    hides the complexity of scheduling, batching, and memory management,
-    offering a simple method to generate text from a prompt.
+    This class coordinates the flow of requests between the scheduler and the
+    executor. It exposes a simple `execute_step` method that drives one
+    iteration of the scheduling and execution cycle.
     """
 
     @abstractmethod
-    def generate(self, prompt: str, max_tokens: int = 16) -> Iterator[str]:
+    def __init__(self, scheduler: BasicScheduler, executor: DummyExecutor):
         """
-        Generates text for a given prompt in a streaming fashion.
-
-        The contract is to:
-        1. Create a new request and add it to the request queue.
-        2. Repeatedly execute the engine's internal step (scheduling, model
-           execution, state update).
-        3. Yield newly generated text chunks as they become available for the
-           submitted request.
-        4. Continue until the request is completed (reaches `max_tokens`) or
-           an error occurs.
+        Initializes the core engine with a scheduler and an executor.
 
         Args:
-            prompt: The input text to generate from.
-            max_tokens: The maximum number of new tokens to generate.
+            scheduler: An instance of a BasicScheduler (or subclass).
+            executor: An instance of a DummyExecutor (or subclass).
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
 
-        Yields:
-            Strings representing chunks of newly generated text.
+    @abstractmethod
+    def process_new_requests(self, new_requests: list[Any]) -> None:
+        """
+        Accepts new requests and forwards them to the scheduler.
+
+        CONTRACT:
+        - Must iterate through `new_requests` and call the scheduler's
+          `add_request` method for each one.
+
+        Args:
+            new_requests: A list of new requests to be added to the system.
+                          The structure of each request item should be consistent
+                          with what the scheduler's `add_request` expects.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def execute_step(self) -> dict[str, str]:
+        """
+        Executes one full step of the inference process.
+
+        CONTRACT:
+        - Must first call the scheduler's `schedule()` method to get a batch
+          of requests to run.
+        - If the batch is not empty, it must pass it to the executor's
+          `execute_batch()` method.
+        - It must then take the results from the executor and use them to
+          update the scheduler's state via `update_request_state()`.
+        - Must return a dictionary of any requests that completed during this
+          step, mapping request_id to its full generated output text.
+        - If the scheduler returns an empty batch, this method should not call
+          the executor and should return an empty dictionary.
+
+        Returns:
+            A dictionary of completed request outputs from this step.
+            Format: {request_id: full_output_string}.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+
+class MockLLMEngine(ABC):
+    """
+    A simplified user-facing API for managing inference requests.
+
+    This class provides a high-level interface for users to add prompts and
+    drive the engine's execution. It hides the internal complexity of the
+    core, scheduler, and executor.
+    """
+
+    @abstractmethod
+    def __init__(self, core_client: MiniEngineCore):
+        """
+        Initializes the user-facing engine with a core client.
+
+        Args:
+            core_client: An instance of the MiniEngineCore that this API will
+                         interact with.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def add_request(self, prompt: str, request_id: str) -> None:
+        """
+        Adds a new inference request to the engine.
+
+        CONTRACT:
+        - Must store the new request in an internal queue to be processed
+          in the next `step()` call.
+        - Must raise a ValueError if a request with the same `request_id`
+          already exists or is being processed.
+
+        Args:
+            prompt: The input text for the language model.
+            request_id: A unique string to identify this request.
 
         Raises:
-            RuntimeError: If the request fails during processing.
+            ValueError: If the `request_id` is a duplicate.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def step(self) -> None:
+        """
+        Advances the engine by one execution step.
+
+        CONTRACT:
+        - Must first pass any newly added requests (from `add_request`) to the
+          `MiniEngineCore` via its `process_new_requests` method.
+        - Must then call the `MiniEngineCore`'s `execute_step` method.
+        - Must collect and store any completed outputs returned by `execute_step`.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    def get_outputs(self) -> dict[str, str]:
+        """
+        Retrieves the outputs of all completed requests.
+
+        CONTRACT:
+        - Must return a dictionary containing all requests that have finished
+          processing since the engine was started.
+        - The dictionary should map each `request_id` to its complete generated
+          output string.
+
+        Returns:
+            A dictionary of completed request outputs.
         """
         # TODO: Implement this
         raise NotImplementedError("Subclasses must implement this method.")

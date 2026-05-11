@@ -1,248 +1,255 @@
-Here is a detailed capstone project README for students.
+# Capstone Project: mini-vLLM Inference Server
+
+By completing this project, you will have built a simplified, end-to-end LLM inference server from scratch. You will gain a deep, practical understanding of the core concepts that make modern LLM serving systems like vLLM incredibly fast and efficient, including request scheduling, batching, and the revolutionary PagedAttention mechanism for managing KV cache memory.
+
+This project synthesizes all core vLLM concepts into a manageable, 4-hour challenge. You will implement the central components that handle request processing, memory management, and simulated model execution.
+
+## System Architecture
+
+The mini-vLLM server is composed of several distinct modules that work together to process inference requests. The user interacts with the high-level `MockLLMEngine`, which orchestrates the entire process through the `MiniEngineCore`.
+
+Here is a high-level diagram of the architecture:
+
+```
+       User Request (prompt, request_id)
+             |
+             v
+   +-------------------+
+   |   MockLLMEngine   | (User-facing API)
+   +-------------------+
+      |      ^
+ add_request | get_outputs
+      |      |
+      v      |
+   +-------------------+
+   |  MiniEngineCore   | (Orchestrator)
+   +-------------------+
+      |      ^      |
+ process_new |      | execute_step
+      |      |      |
+      v      |      v
+   +-------------------+     schedule()    +-----------------+
+   |  BasicScheduler   |------------------>|  DummyExecutor  |
+   | (Manages Queues)  |<------------------| (Mock Model)    |
+   +-------------------+   update_state    +-----------------+
+      |           ^
+ allocate() | free()
+      |           |
+      v           |
+   +--------------------------+
+   |  SimpleKVBlockManager    | (PagedAttention Memory)
+   +--------------------------+
+```
+
+## Module Breakdown
+
+You will implement five key modules. Each module has a specific responsibility and a clear interface.
 
 ---
 
-# mini-vLLM: A Simplified LLM Inference Server
+### 1. `SimpleKVBlockManager`
 
-Welcome to your capstone project! By completing this project, you will have built a simplified, end-to-end LLM inference server from scratch. You'll gain a deep, practical understanding of the core concepts that make modern LLM serving systems like vLLM incredibly fast and efficient, including PagedAttention-style memory management, continuous batching, and request scheduling.
-
-This project is designed to be a hands-on experience, simulating the architecture of a high-throughput inference system in about 4 hours. You will implement the key components that work together to serve multiple users concurrently and efficiently.
-
-## 🎯 Project Goal
-
-The objective is to build a `MiniLLMEngine` that can process multiple, concurrent text generation requests. This engine will not use a real LLM but will simulate its key behaviors, allowing you to focus on the systems architecture that enables high performance.
-
-## 🏛️ System Architecture
-
-Your system will be composed of five main components that work in a coordinated loop. The `MiniLLMEngine` orchestrates this loop, processing requests from a queue, scheduling them into batches, executing a "model," and managing memory.
-
-Here is a diagram of the data flow:
-
-```ascii
-  User Code                 +-------------------------------------------------------------+
-(e.g., generate())          | MiniLLMEngine (_step() loop)                                |
-       |                    |                                                             |
-       v                    |    +----------------+   1. Add   +--------------+           |
-.----------------------.    |    |   User Prompt  | ---------> | RequestQueue |           |
-|  Streaming Iterator  |    |    '----------------'            +--------------+           |
-'----------------------'    |                                       ^   | 2. Get Pending |
-       ^ (Yields tokens)    |                                       |   v                |
-       | 6. Process         |    +----------------+           +----------------+           |
-       +--------------------|----| MockModelRunner| <---------| BatchScheduler |           |
-                            |    +----------------+  5. Run   +----------------+           |
-                            |      ^       |       Forward        ^   | 3. Schedule Batch |
-                            |      |       | Pass                 |   |                   |
-                            |      +-------+                      |   v                   |
-                            |     4. Batch of Requests       +--------------------+       |
-                            |                                | KVCacheSimulator   |       |
-                            |                                | (Paged KV Cache)   |       |
-                            |                                +--------------------+       |
-                            |                                                             |
-                            +-------------------------------------------------------------+
-```
-
-## 🧩 Modules to Implement
-
-You will implement five Python classes in `implementation.py`. Each class has a specific role in the system.
-
-### 1. `RequestQueue`
-
-*   **Responsibility**: Manages incoming inference requests. It accepts user prompts, tokenizes them, and stores them in a queue until they are ready to be processed by the scheduler.
-*   **Interface**:
+*   **Responsibility:** Manages the allocation and deallocation of fixed-size KV cache blocks, mimicking vLLM's PagedAttention. This is the lowest-level memory manager.
+*   **Interface:**
     ```python
-    import collections
-    from typing import List, Dict, Any
-
-    class Request:
-        def __init__(self, request_id: str, prompt_tokens: List[int], max_tokens: int):
-            self.request_id = request_id
-            self.prompt_tokens = prompt_tokens
-            self.output_tokens: List[int] = []
-            self.status: str = "PENDING" # PENDING, RUNNING, COMPLETED, ERROR
-            self.max_tokens = max_tokens
-            self.kv_cache_block_ids: List[int] = [] # Physically allocated blocks
-
-    class RequestQueue:
-        def __init__(self, tokenizer):
-            self._queue = collections.deque() # Stores request_ids
-            self._requests: Dict[str, Request] = {}
-            self.tokenizer = tokenizer
-
-        def add_request(self, prompt: str, max_tokens: int = 16) -> Request:
-            # ... implementation needed ...
-
-        def get_pending_requests(self) -> List[Request]:
-            # ... implementation needed ...
-
-        def get_request(self, request_id: str) -> Request:
-            # ... implementation needed ...
-
-        def remove_request(self, request_id: str):
-            # ... implementation needed ...
+    class SimpleKVBlockManager:
+        def __init__(self, num_total_blocks: int):
+            ...
+        def allocate(self, num_blocks: int) -> list: # Returns list of block IDs
+            ...
+        def free(self, block_ids: list):
+            ...
+        def get_available_blocks(self) -> int:
+            ...
     ```
-*   **Expected Behavior**:
-    *   Given a prompt, `add_request` should tokenize it and store a new `Request` object with 'PENDING' status.
-    *   Calling `get_pending_requests` should return only requests with 'PENDING' status.
+*   **Expected Behavior:**
+    *   `allocate(N)` should return N unique block IDs if N blocks are available.
+    *   `allocate(N)` should raise an error if N blocks are not available (out of memory).
+    *   `free(block_ids)` should mark blocks as available for subsequent reuse.
+    *   After allocating and freeing blocks, the number of available blocks should return to its initial state.
 
-### 2. `KVCacheSimulator`
+---
 
-*   **Responsibility**: Simulates the core memory management concept of vLLM's PagedAttention. It manages a pool of fixed-size KV cache "blocks" and handles their allocation and deallocation for different requests.
-*   **Interface**:
+### 2. `DummyExecutor`
+
+*   **Responsibility:** Simulates the LLM model execution. Instead of running a real GPU model, it looks up a prompt in a dictionary and "generates" the pre-written response one token at a time.
+*   **Interface:**
     ```python
-    from typing import Dict, List
-
-    class KVCacheSimulator:
-        def __init__(self, total_blocks: int, block_size: int):
-            self.total_blocks = total_blocks
-            self.block_size = block_size
-            self.free_blocks = list(range(total_blocks))
-            self.allocated_blocks: Dict[str, List[int]] = {} # request_id -> list of block_ids
-
-        def allocate_blocks(self, request_id: str, num_blocks: int) -> List[int]:
-            # ... implementation needed ...
-
-        def free_blocks_for_request(self, request_id: str):
-            # ... implementation needed ...
-
-        def get_num_free_blocks(self) -> int:
-            # ... implementation needed ...
+    class DummyExecutor:
+        def __init__(self, mock_responses: dict):
+            # mock_responses = {'prompt': 'response'}
+            ...
+        def execute_batch(self, scheduled_requests: list) -> list: # Returns list of (request_id, new_token, is_finished)
+            ...
     ```
-*   **Expected Behavior**:
-    *   Calling `allocate_blocks` should return unique block IDs and decrease the count of free blocks.
-    *   Calling `free_blocks_for_request` should return allocated blocks to the free pool and increase the count of free blocks.
-    *   Attempting to allocate more blocks than available should raise a `ValueError`.
+*   **Expected Behavior:**
+    *   Given a request with a known prompt, `execute_batch` should return the expected next token from its mock response.
+    *   If the request reaches its max tokens or the mock response ends, it should be marked as finished.
+    *   Executing an unknown prompt should return a default or error token and mark as finished.
 
-### 3. `MockModelRunner`
+---
 
-*   **Responsibility**: Simulates the forward pass of an LLM. Instead of performing complex GPU computations, it accepts a batch of requests and returns a deterministically generated "next token" for each one. This allows us to focus on the system's logic without needing a real model.
-*   **Interface**:
+### 3. `BasicScheduler`
+
+*   **Responsibility:** The brain of the operation. It manages request queues (`waiting`, `running`), decides which requests to run next based on a First-Come, First-Served (FCFS) policy, and interacts with the `SimpleKVBlockManager` to allocate memory for them.
+*   **Interface:**
     ```python
-    from typing import List, Dict, Any
-    # Assuming Request class is available
-
-    class MockModelRunner:
-        def __init__(self, vocab_size: int = 32000):
-            self.vocab_size = vocab_size
-            self.mock_logits_counter = 0
-
-        def run_forward_pass(self, batch_requests: List[Any]) -> Dict[str, int]: # Any assumes Request
-            # ... implementation needed ...
+    class BasicScheduler:
+        def __init__(self, kv_block_manager):
+            ...
+        def add_request(self, request_id: str, prompt: str, max_output_len: int):
+            ...
+        def schedule(self) -> list: # Returns a list of (request_id, block_table) for execution
+            ...
+        def update_request_state(self, request_id: str, new_token: str, is_finished: bool):
+            ...
     ```
-*   **Expected Behavior**:
-    *   Given a batch of requests, `run_forward_pass` should return a dictionary of next token IDs, one for each request.
-    *   The generated token IDs should be within the mock vocabulary range (e.g., >0 and <vocab_size).
+*   **Expected Behavior:**
+    *   Adding a request should allocate initial KV cache blocks via `SimpleKVBlockManager`.
+    *   `schedule()` should return pending requests with valid block tables when blocks are available.
+    *   Updating a request state as finished should deallocate its KV cache blocks.
+    *   `schedule()` should prioritize requests based on arrival time (FCFS principle).
 
-### 4. `BatchScheduler`
+---
 
-*   **Responsibility**: This is the brain of the operation. It decides which requests to run in the next model iteration. It implements **continuous batching** by including already-running requests alongside new, pending requests. It also orchestrates KV cache allocation/deallocation via the `KVCacheSimulator`.
-*   **Interface**:
+### 4. `MiniEngineCore`
+
+*   **Responsibility:** The central orchestrator. It acts as the glue between the scheduler and the executor, managing the main execution loop.
+*   **Interface:**
     ```python
-    from typing import List, Dict, Any
-    # Assuming Request class and KVCacheSimulator are available
-
-    class BatchScheduler:
-        def __init__(self, kv_cache_simulator: Any): # Any assumes KVCacheSimulator
-            self.kv_cache_simulator = kv_cache_simulator
-            self.running_requests: Dict[str, Any] = {} # request_id -> Request
-
-        def schedule(self, pending_requests: List[Any], max_batch_size: int) -> List[Any]: # Any assumes Request
-            # ... implementation needed ...
-
-        def update_request_status(self, request: Any, new_status: str):
-            # ... implementation needed ...
-
-        def add_token_to_request(self, request: Any, new_token_id: int):
-            # ... implementation needed ...
+    class MiniEngineCore:
+        def __init__(self, scheduler, executor):
+            ...
+        def process_new_requests(self, new_requests: list):
+            # Takes new requests from MockLLMEngine
+            ...
+        def execute_step(self) -> dict: # Returns completed outputs
+            ...
     ```
-*   **Expected Behavior**:
-    *   Given pending requests and available KV cache blocks, `schedule` should add new requests to the batch and allocate initial blocks for them.
-    *   If a request is `RUNNING`, it should be prioritized and included in the next batch (continuous batching).
-    *   When a request completes, `update_request_status` should free its allocated KV cache blocks.
-    *   If `add_token_to_request` requires more blocks and none are available, the request's status should change to 'ERROR'.
+*   **Expected Behavior:**
+    *   Given new requests, `process_new_requests` should pass them to the scheduler.
+    *   `execute_step` should call the scheduler's `schedule` method and the executor's `execute` method with a batch.
+    *   If the scheduler returns no pending requests, `execute_step` should not call the executor and should return an empty dict.
 
-### 5. `MiniLLMEngine`
+---
 
-*   **Responsibility**: The top-level class that integrates all other components. It exposes the public `generate` API, runs the main `_step` loop to drive the inference process, and provides the streaming output back to the user.
-*   **Interface**:
+### 5. `MockLLMEngine`
+
+*   **Responsibility:** A simplified user-facing API. This is the entry point for submitting new inference requests and retrieving completed results. It hides the complexity of the internal core loop.
+*   **Interface:**
     ```python
-    import time
-    from typing import Iterator, List, Dict, Any
-    from collections import deque
-    # Assuming other classes are available
-
-    class MiniLLMEngine:
-        def __init__(self, total_kv_blocks: int = 100, kv_block_size: int = 4, max_batch_size: int = 4):
-            # ... initialization ...
-
-        def _step(self):
-            # ... implementation needed ...
-
-        def generate(self, prompt: str, max_tokens: int = 16) -> Iterator[str]:
-            # ... implementation needed ...
+    class MockLLMEngine:
+        def __init__(self, core_client):
+            ...
+        def add_request(self, prompt: str, request_id: str):
+            ...
+        def step(self):
+            ...
+        def get_outputs(self) -> dict: # {request_id: output_text}
+            ...
     ```
-*   **Expected Behavior**:
-    *   Calling `generate` with a prompt should return an iterator that yields generated token chunks over time.
-    *   The `generate` method should eventually yield all `max_tokens` for a request unless an error occurs.
-    *   Multiple concurrent calls to `generate` (e.g., from different threads) should be handled correctly, demonstrating the power of continuous batching.
+*   **Expected Behavior:**
+    *   Given a prompt, `add_request` should add it to an internal queue and send it to the `core_client`.
+    *   After `step()` is called, completed requests should be available via `get_outputs()` with correct results.
+    *   Adding a request with a duplicate ID should raise `ValueError`.
 
-## 🤝 How the Pieces Fit Together
+## How Modules Connect: The Lifecycle of a Request
 
-The magic of the system happens in the `MiniLLMEngine._step()` method, which runs continuously as long as there are active requests.
+1.  A user calls `MockLLMEngine.add_request()`. The request is queued.
+2.  The user calls `MockLLMEngine.step()`.
+3.  The `MockLLMEngine` sends all new requests to `MiniEngineCore.process_new_requests()`.
+4.  The `MiniEngineCore` passes these new requests to the `BasicScheduler.add_request()`.
+5.  The `BasicScheduler` attempts to allocate initial KV cache blocks for the prompt from the `SimpleKVBlockManager`. If it fails, the request waits.
+6.  The `MiniEngineCore` then calls `BasicScheduler.schedule()` to get a batch of requests that are ready to run (i.e., have memory allocated).
+7.  This batch is sent to `DummyExecutor.execute_batch()`.
+8.  The `DummyExecutor` "generates" the next token for each request in the batch and returns the results, including whether each request is now finished.
+9.  The `MiniEngineCore` passes these results to `BasicScheduler.update_request_state()`.
+10. If a request is finished, the `BasicScheduler` calls `SimpleKVBlockManager.free()` to release its KV cache blocks, making memory available for other waiting requests.
+11. The `MiniEngineCore` collects the full text of any completed requests and returns them.
+12. Finally, the `MockLLMEngine` stores these completed outputs, which the user can retrieve with `get_outputs()`.
 
-1.  **Request Arrival**: A user calls `engine.generate()`. A new `Request` is created and added to the `RequestQueue`.
-2.  **Scheduling a Batch**: In each `_step()`, the `BatchScheduler` is called. It first adds all `RUNNING` requests to the next batch. Then, it tries to fill the rest of the batch with `PENDING` requests from the `RequestQueue`, but only if it can successfully allocate initial KV cache blocks for them from the `KVCacheSimulator`.
-3.  **Model Execution**: The engine sends the scheduled batch to the `MockModelRunner`, which returns a new token for every request in the batch.
-4.  **State Update**: The engine processes the results. For each request:
-    *   It calls `scheduler.add_token_to_request()`. This appends the new token and allocates more KV cache blocks if the current ones are full. If allocation fails, the request is marked as an `ERROR`.
-    *   The new token is added to a stream buffer for the user.
-    *   It checks if the request has reached its `max_tokens`. If so, it's marked `COMPLETED`, and the scheduler frees all its KV cache blocks.
-5.  **Streaming Output**: The `generate()` method's loop yields any new tokens from the stream buffer back to the user, then pauses briefly, allowing the `_step()` loop (driven by other concurrent calls) to continue making progress.
+## Success Criteria and Testing
 
-## ✅ Success Criteria
+Your implementation is considered correct and complete when all `pytest` tests pass. These tests cover each module in isolation and then verify the entire system with an integration test.
 
-Your implementation is successful when all automated tests pass. The tests are designed to validate each component in isolation and then the entire system working together.
+### Final Integration Test
 
-*   **Unit Tests**: Each module (`RequestQueue`, `KVCacheSimulator`, etc.) has its own set of tests in `test_capstone.py`.
-*   **Integration Test**: A final test, `test_integration_concurrent_requests`, simulates a real-world scenario. It uses multiple threads to submit 8 concurrent requests to your engine. To pass, your engine must:
-    *   Process all requests to completion without deadlocking or crashing.
-    *   Correctly generate exactly `max_tokens_per_request` for each successful request.
-    *   Efficiently manage KV cache memory to handle the concurrent load.
+The final test will configure the entire system to ensure it can handle multiple concurrent requests with a limited memory budget, simulating a real-world scenario.
 
-## 🚀 Suggested Implementation Order
+*   **Description:** Test the entire mini-vLLM system by submitting multiple concurrent requests, ensuring correct sequence generation, proper KV cache utilization, and graceful handling of memory limits.
+*   **Setup:**
+    ```python
+    mock_model_responses = {
+        "hello world": "hello world, how are you?",
+        "tell me a joke": "Why don't scientists trust atoms? Because they make up everything!",
+        "short query": "short answer"
+    }
+    kv_cache_size = 5 # Small cache to test allocation/deallocation
+    engine = MockLLMEngine(MiniEngineCore(BasicScheduler(SimpleKVBlockManager(kv_cache_size)), DummyExecutor(mock_model_responses)))
+    engine.add_request("hello world", "req1")
+    engine.add_request("tell me a joke", "req2")
+    engine.add_request("short query", "req3")
+    ```
+*   **Success Metric:** All submitted requests successfully complete, their outputs match the mock responses, and the system does not crash due to out-of-memory errors (even with the limited `kv_cache_size`).
+*   **Expected Output Check:** Verify that `engine.get_outputs()` contains `'req1': 'hello world, how are you?'`, `'req2': 'Why don't scientists trust atoms? Because they make up everything!'`, and `'req3': 'short answer'`. Verify that no errors related to KV cache block allocation are raised during execution.
 
-We recommend implementing the components in order of their dependencies to allow for incremental testing.
+## Suggested Implementation Order
 
-1.  **`RequestQueue`**: A simple, standalone data structure.
-2.  **`KVCacheSimulator`**: Another standalone component, critical for memory management.
-3.  **`MockModelRunner`**: A very simple, dependency-free simulator.
-4.  **`BatchScheduler`**: This is the most complex piece of logic. It depends on the three components above. Take your time here to get the scheduling and memory allocation logic right.
-5.  **`MiniLLMEngine`**: The final step is to wire everything together in the engine's `_step` and `generate` methods.
+We strongly recommend implementing the modules in a "bottom-up" order based on their dependencies. This allows you to build and potentially test each layer before moving to the next.
 
-## 💻 Getting Started
+1.  **`SimpleKVBlockManager`** (No dependencies)
+2.  **`DummyExecutor`** (No dependencies)
+3.  **`BasicScheduler`** (Depends on `SimpleKVBlockManager`)
+4.  **`MiniEngineCore`** (Depends on `BasicScheduler` and `DummyExecutor`)
+5.  **`MockLLMEngine`** (Depends on `MiniEngineCore`)
+
+## Getting Started
+
+All your work should be done in the `implementation.py` file. The tests in `test_capstone.py` will import your classes from that file.
 
 1.  Navigate to the project directory:
     ```bash
     cd capstone/
     ```
 
-2.  Open `implementation.py`. This is the only file you need to edit. It contains the class skeletons for all the modules described above.
+2.  Open `implementation.py` in your editor and begin implementing the classes as described above.
 
-3.  Fill in the logic for each class, following the interface sketches and expected behaviors.
-
-4.  As you complete each module, you can run the tests to check your work. To run all tests, use `pytest`:
+3.  Run the tests from your terminal to check your progress:
     ```bash
     pytest test_capstone.py -v
     ```
 
-    You can also run tests for a specific class, for example:
-    ```bash
-    pytest test_capstone.py -k TestRequestQueue -v
-    ```
+Good luck!
 
-### ⚠️ A Note on Tests
+---
 
-The provided tests are your guide to a correct implementation. However, please be aware of the following notice:
+### ⚠️ Validation Notice
 
-> These tests could not be fully validated against a reference implementation. Some tests may have issues. If a failing test appears to be wrong (not your implementation), please file an issue.
+These tests could not be fully validated against a reference implementation.
+Some tests may have issues. If a failing test appears to be wrong (not your implementation), please file an issue.
 
-Good luck
+Validation history:
+- Attempt 1: ============================= test session starts ==============================
+collecting ... collected 19 items
+
+test_capstone.py::test_SimpleKVBlockManager_allocation PASSED            [  5%]
+test_capstone.py::test_SimpleKVBlockManager_out_of_memory PASSED         [ 10%]
+test_capstone.py::test_SimpleKVBlockManager_freeing_blocks PASSED        [ 15%]
+test_capstone.py::test_SimpleKVBlockManager_reuse_freed_blocks PASSED    [ 21%]
+test_capstone.py::test_DummyExecutor_generates_next_token FAILED
+- Attempt 2: ============================= test session starts ==============================
+collecting ... collected 0 items / 1 error
+
+==================================== ERRORS ====================================
+______________________ ERROR collecting test_capstone.py _______________________
+/Users/tsetungy/miniconda3/lib/python3.12/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+/Users/tsetungy/miniconda3/lib/python3.12/site-packages/_pytest/pathlib.py:587: in import_p
+- Attempt 3: ============================= test session starts ==============================
+collecting ... collected 0 items / 1 error
+
+==================================== ERRORS ====================================
+______________________ ERROR collecting test_capstone.py _______________________
+/Users/tsetungy/miniconda3/lib/python3.12/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+/Users/tsetungy/miniconda3/lib/python3.12/site-packages/_pytest/pathlib.py:587: in import_p

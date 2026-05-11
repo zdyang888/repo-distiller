@@ -1,21 +1,20 @@
-# Understanding vLLM
+# Understanding vLLM: Fast LLM Inference and Serving
 
-The system processes incoming requests through an `LLMEngine`, which uses an `InputProcessor` to prepare them and an `OutputProcessor` to format results. The core of the system is the `EngineCore`, which coordinates a `Scheduler` and an `Executor`. The `Scheduler` manages the lifecycle of requests and their KV cache blocks (via PagedAttention), while the `Executor` is responsible for running the model on the underlying hardware, performing the actual forward passes.
+The vLLM system receives user requests through its LLMEngine, which then dispatches them to an EngineCore via an EngineCoreClient. The EngineCore orchestrates the entire inference process, utilizing a Scheduler to manage incoming requests, prioritize them, and allocate KV cache blocks using PagedAttention. An Executor component then takes the scheduled batches and runs the actual model inference, potentially across multiple devices, while interacting with the KV cache and returning outputs to the Scheduler, which are then processed back to the user.
 
 ## Contents
 
 | Notebook | Description |
 |----------|-------------|
-| [01. Request Input & Output Processing](notebooks/01_request_input_output_processing.ipynb) | Students will build simplified versions of an `InputProcessor` to tokenize prompts and an `OutputProcessor` to detokenize generated tokens and manage streaming output. |
-| [02. PagedAttention: Efficient KV Cache Management](notebooks/02_pagedattention_efficient_kv_cache_manage.ipynb) | Students will simulate the core mechanics of PagedAttention, managing fixed-size KV cache blocks for multiple sequences, and understanding how it reduces memory fragmentation to improve throughput. |
-| [03. The LLM Model Executor](notebooks/03_the_llm_model_executor.ipynb) | Students will build a mock `Executor` that simulates running a model's forward pass, accepting batches of token IDs and returning mock logits, focusing on the interface between the scheduler and the model. |
-| [04. Request Scheduling and Continuous Batching](notebooks/04_request_scheduling_and_continuous_batchi.ipynb) | Students will implement a simplified `Scheduler` that manages multiple incoming requests, prioritizes them, and constructs batches for the `Executor` using continuous batching logic, interacting with the KV cache manager. |
-| [05. Orchestrating the Inference Engine Core](notebooks/05_orchestrating_the_inference_engine_core.ipynb) | Students will integrate the `Scheduler`, `Executor`, and `Input/Output Processors` into a basic `EngineCore`, demonstrating the central coordination of inference requests from intake to output. |
-| [06. The User-Facing LLM Engine API](notebooks/06_the_user_facing_llm_engine_api.ipynb) | Students will create a high-level `LLMEngine` that provides a user-friendly, streaming interface for submitting prompts and receiving responses, utilizing the `EngineCore`. |
+| [01. Interacting with vLLM: The User API](notebooks/01_interacting_with_vllm_the_user_api.ipynb) | Learn how users interact with vLLM by sending requests and receiving responses, understanding the LLMEngine's role as the primary interface to the system. |
+| [02. The Heart of vLLM: Request Orchestration with EngineCore](notebooks/02_the_heart_of_vllm_request_orchestration_.ipynb) | Understand how the EngineCore orchestrates the entire inference lifecycle, dispatching requests and coordinating between scheduling and execution components. |
+| [03. Efficient Request Handling: The Scheduler](notebooks/03_efficient_request_handling_the_scheduler.ipynb) | Dive into how the Scheduler component manages the queue of incoming requests, prioritizes them, and prepares batches for model execution, considering resource constraints. |
+| [04. Model Execution: The Executor](notebooks/04_model_execution_the_executor.ipynb) | Explore how the Executor component is responsible for loading the LLM model and performing the actual forward pass on scheduled batches of requests. |
+| [05. Memory Efficiency: PagedAttention KV Cache](notebooks/05_memory_efficiency_pagedattention_kv_cach.ipynb) | Understand the advanced PagedAttention technique for managing KV cache memory, enabling higher throughput and efficient resource utilization by treating KV cache as a paged memory system. |
 
 ## Capstone Project
 
-**mini-vLLM**: Students will build a simplified, end-to-end LLM inference server that leverages the key concepts of vLLM: request processing, efficient KV cache management, continuous batching, and model execution. This capstone will solidify their understanding of how these components integrate to achieve high-throughput LLM serving.
+**mini-vLLM Inference Server**: Students will build a simplified, end-to-end LLM inference server that processes user requests, schedules them based on availability, executes a mock model for token generation, and manages a basic KV cache using PagedAttention principles, synthesizing all core vLLM concepts.
 
 See `capstone/` for instructions, starter code, and tests.
 

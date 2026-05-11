@@ -1,192 +1,231 @@
 """
-Interfaces for the Mini-GPT Capstone Project.
+Defines the abstract interfaces for a capstone project building a miniature GPT.
 
-This file defines the abstract base classes (ABCs) for the core components
-of the mini-GPT project. These interfaces establish a clear contract for each
-module's functionality, ensuring that different implementations can be used
-interchangeably as long as they adhere to these contracts.
+This file establishes the core contracts for the three main components of the
+system: the model, the dataset, and the trainer. By using Abstract Base Classes
+(ABCs), we enforce a clear separation of concerns and ensure that any concrete
+implementation will adhere to a consistent API.
 
-The architecture is composed of three main parts:
-1.  IMiniDataProcessor: Responsible for taking raw text data and converting it
-    into a numerical format that the model can understand.
-2.  IMiniGPTModel: The core transformer-based language model, responsible for
-    learning patterns in the data and generating new text.
-3.  IMiniTrainer: Manages the entire training process, orchestrating the data
-    and the model to train the model's parameters effectively.
+The architecture is as follows:
+- ITextDataset: An interface for a class responsible for loading, tokenizing,
+  and batching text data. It provides the vocabulary and serves data for
+  training and validation.
+- IMiniGPT: An interface for the language model itself, a simplified version of
+  GPT. It must be a torch.nn.Module that can perform a forward pass to compute
+  logits and loss.
+- IMiniTrainer: An interface for the training orchestrator. It takes a model
+  and a dataset, and manages the training loop, including optimization, loss
+- calculation, and periodic evaluation.
 """
-
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from collections.abc import Callable
 
 import torch
 import torch.nn as nn
 
 
-class IMiniDataProcessor(ABC):
+class IMiniGPT(nn.Module, ABC):
     """
-    Handles tokenization of raw text and its conversion to a binary format.
+    Abstract Base Class for a simplified GPT model.
 
-    This interface defines the contract for any data processing component.
-    Its primary responsibility is to create a vocabulary from a text corpus
-    and then encode that corpus into a sequence of integer token IDs, which are
-    saved to a binary file for efficient loading during training.
-    """
-
-    @abstractmethod
-    def __init__(self, vocab_size: int):
-        """
-        Initializes the data processor.
-
-        Args:
-            vocab_size (int): The maximum number of unique tokens in the
-                              vocabulary.
-        """
-        # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement the __init__ method.")
-
-    @abstractmethod
-    def prepare_data(self, text: str, output_file: str) -> None:
-        """
-        Processes raw text and saves the tokenized data to a binary file.
-
-        CONTRACT:
-        - Must build a vocabulary from the input `text`.
-        - Must tokenize and encode the entire `text` into a sequence of
-          integer token IDs based on the built vocabulary.
-        - Must serialize and write the encoded token IDs to the specified
-          `output_file` in a binary format (e.g., as a sequence of uint16).
-
-        Args:
-            text (str): The raw input text corpus.
-            output_file (str): The path to the output `.bin` file where the
-                               encoded data will be saved.
-        """
-        # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement the prepare_data method.")
-
-
-class IMiniGPTModel(nn.Module, ABC):
-    """
-    A simplified GPT model with a core transformer architecture.
-
-    This interface defines the contract for the language model itself. It must
-    be a valid `torch.nn.Module` and provide methods for both training (forward
-    pass with loss calculation) and inference (text generation).
+    This interface defines the essential structure of the language model.
+    Any class that implements this interface must be a `torch.nn.Module`
+    and provide a `forward` method that can compute logits and, optionally,
+    the cross-entropy loss.
     """
 
-    @abstractmethod
     def __init__(self, vocab_size: int, block_size: int, n_layer: int, n_head: int, n_embd: int):
         """
-        Initializes the model architecture and its parameters.
+        Initializes the MiniGPT model architecture.
+
+        This constructor's signature is part of the contract, but its
+        implementation is left to the concrete class.
 
         Args:
-            vocab_size (int): The size of the vocabulary.
-            block_size (int): The context length (max sequence length).
-            n_layer (int): The number of transformer blocks.
-            n_head (int): The number of attention heads.
-            n_embd (int): The embedding dimension.
+            vocab_size (int): The number of unique tokens in the vocabulary.
+            block_size (int): The maximum sequence length (context size).
+            n_layer (int): The number of Transformer blocks.
+            n_head (int): The number of attention heads in each Transformer block.
+            n_embd (int): The dimensionality of the token and position embeddings.
         """
         super().__init__()
         # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement the __init__ method.")
+        # The concrete implementation should initialize the following layers:
+        # - Token embedding layer
+        # - Positional embedding layer
+        # - A sequence of Transformer blocks
+        # - A final layer normalization
+        # - The language modeling head (a linear layer to map to vocab size)
+        # Note: While __init__ cannot be abstract, subclasses must adhere to this signature.
 
     @abstractmethod
-    def forward(self, idx: torch.Tensor, targets: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
-        Performs a forward pass through the model.
+        Performs the forward pass of the model.
 
         CONTRACT:
-        - Must take a batch of input token sequences `idx` of shape
-          (batch_size, block_size).
-        - Must return logits, which are the raw, unnormalized predictions for
-          the next token in the sequence, with shape
-          (batch_size, block_size, vocab_size).
-        - If `targets` (of shape (batch_size, block_size)) are provided, it
-          must also compute the cross-entropy loss between the logits and
-          the targets.
-        - The return value must be a tuple: (logits, loss). If `targets` is
-          None, the loss component of the tuple should also be None.
+        Given an input tensor `idx` of token indices, this method must compute the
+        logits for the next token prediction. If `targets` are provided, it must
+        also compute and return the cross-entropy loss. The causal attention
+        mask must be correctly applied to prevent tokens from attending to
+        future positions.
 
         Args:
-            idx (torch.Tensor): A tensor of input token indices.
-            targets (Optional[torch.Tensor]): A tensor of target token indices
-                                              for loss calculation.
+            idx (torch.Tensor): A tensor of token indices.
+                Shape: (batch_size, block_size)
+            targets (torch.Tensor | None, optional): A tensor of target token indices
+                for loss calculation. If None, loss is not computed.
+                Shape: (batch_size, block_size)
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor]]: A tuple containing
-            the model's output logits and the calculated loss (if any).
+            tuple[torch.Tensor, torch.Tensor | None]:
+            - logits (torch.Tensor): The model's output logits.
+              Shape: (batch_size, block_size, vocab_size)
+            - loss (torch.Tensor | None): A scalar tensor representing the
+              cross-entropy loss if `targets` were provided, otherwise None.
         """
         # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement the forward method.")
+        raise NotImplementedError("Subclasses must implement the forward pass.")
+
+
+class ITextDataset(ABC):
+    """
+    Abstract Base Class for a text data-handling class.
+
+    This interface defines the contract for loading raw text, tokenizing it,
+    splitting it into training and validation sets, and providing batches
+    of data for model training.
+    """
+
+    def __init__(self, raw_text: str, block_size: int, split_ratio: float = 0.9):
+        """
+        Initializes the dataset.
+
+        This constructor's signature is part of the contract. The implementation
+        should process the raw text to build a vocabulary and split the tokenized
+        data into training and validation sets.
+
+        Args:
+            raw_text (str): The full corpus of text to process.
+            block_size (int): The sequence length for each batch.
+            split_ratio (float): The proportion of data to use for the training set.
+        """
+        # TODO: Implement this
+        # The concrete implementation should:
+        # 1. Create a character-level or subword-level vocabulary.
+        # 2. Implement an encoder (string to list[int]) and a decoder (list[int] to string).
+        # 3. Tokenize the entire raw_text.
+        # 4. Split the tokenized data into train and validation sets based on split_ratio.
+        # Note: While __init__ cannot be abstract, subclasses must adhere to this signature.
+
+    @property
+    @abstractmethod
+    def vocab_size(self) -> int:
+        """Returns the total number of unique tokens in the vocabulary."""
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement the vocab_size property.")
+
+    @property
+    @abstractmethod
+    def encoder(self) -> Callable[[str], list[int]]:
+        """
+        Returns the encoder function.
+
+        The encoder function should take a string and return a list of
+        corresponding token IDs.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement the encoder property.")
+
+    @property
+    @abstractmethod
+    def decoder(self) -> Callable[[list[int]], str]:
+        """
+        Returns the decoder function.
+
+        The decoder function should take a list of token IDs and return the
+        corresponding string.
+        """
+        # TODO: Implement this
+        raise NotImplementedError("Subclasses must implement the decoder property.")
 
     @abstractmethod
-    def generate(self, idx: torch.Tensor, max_new_tokens: int) -> torch.Tensor:
+    def get_batch(self, split: str, batch_size: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Generates a sequence of new tokens given a starting context.
+        Retrieves a random batch of data from the specified split.
 
         CONTRACT:
-        - Must take a starting context `idx` of shape (batch_size, sequence_length).
-        - Must autoregressively generate `max_new_tokens` by repeatedly
-          calling the forward pass, sampling from the output logits, and
-          appending the result to the input sequence.
-        - Must ensure the context window does not exceed `block_size` by
-          cropping the sequence if necessary.
-        - Must return the extended sequence of tokens, including the original
-          context `idx`, with a final shape of
-          (batch_size, sequence_length + max_new_tokens).
+        This method must sample `batch_size` number of random starting points
+        from the specified data split ('train' or 'val'). For each starting
+        point, it must extract a sequence of `block_size` tokens for the input
+        (`xb`) and a corresponding sequence of `block_size` tokens for the target
+        (`yb`), where the target is shifted by one position.
 
         Args:
-            idx (torch.Tensor): The initial sequence of token indices (context).
-            max_new_tokens (int): The number of new tokens to generate.
+            split (str): The data split to sample from. Must be 'train' or 'val'.
+            batch_size (int): The number of independent sequences in the batch.
 
         Returns:
-            torch.Tensor: The generated sequence of token indices, including
-                          the original context.
+            tuple[torch.Tensor, torch.Tensor]:
+            - xb (torch.Tensor): The input sequences.
+              Shape: (batch_size, block_size)
+            - yb (torch.Tensor): The target sequences (shifted by one).
+              Shape: (batch_size, block_size)
         """
         # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement the generate method.")
+        raise NotImplementedError("Subclasses must implement batch generation.")
 
 
 class IMiniTrainer(ABC):
     """
-    Manages the training loop for the MiniGPTModel.
+    Abstract Base Class for the training orchestrator.
 
-    This interface defines the contract for the training component. It is
-    responsible for all aspects of the training process, including creating
-    data batches, running the optimization steps, evaluating the model on a
-    validation set, and saving model checkpoints.
+    This interface defines the contract for a class that manages the model
+    training process. It is responsible for setting up the optimizer, running
+    the training loop, and performing periodic evaluations.
     """
 
-    @abstractmethod
-    def __init__(self, model: IMiniGPTModel, train_data_file: str, val_data_file: str, batch_size: int, learning_rate: float, max_iters: int):
+    def __init__(self, model: IMiniGPT, dataset: ITextDataset, learning_rate: float = 1e-3, device: str = 'cpu'):
         """
-        Initializes the trainer with the model and training configuration.
+        Initializes the trainer.
+
+        This constructor's signature is part of the contract. The implementation
+        should store the model and dataset, move the model to the specified
+        device, and initialize an optimizer (e.g., AdamW).
 
         Args:
-            model (IMiniGPTModel): The model instance to be trained.
-            train_data_file (str): Path to the training data `.bin` file.
-            val_data_file (str): Path to the validation data `.bin` file.
-            batch_size (int): The number of sequences in each training batch.
+            model (IMiniGPT): The model instance to be trained.
+            dataset (ITextDataset): The dataset instance to provide data.
             learning_rate (float): The learning rate for the optimizer.
-            max_iters (int): The total number of training iterations to run.
+            device (str): The device to train on ('cpu', 'cuda', etc.).
         """
         # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement the __init__ method.")
+        # The concrete implementation should:
+        # 1. Store references to the model and dataset.
+        # 2. Move the model to the specified device.
+        # 3. Instantiate an optimizer (e.g., torch.optim.AdamW).
+        # Note: While __init__ cannot be abstract, subclasses must adhere to this signature.
 
     @abstractmethod
-    def train(self) -> None:
+    def train(self, max_iters: int, eval_interval: int = 100, batch_size: int = 32) -> None:
         """
-        Executes the main training loop.
+        Runs the main training loop.
 
         CONTRACT:
-        - Must load training and validation data from the specified files.
-        - Must iterate for `max_iters`, performing the following in each step:
-            1. Sample a batch of data.
-            2. Perform a forward and backward pass to compute gradients.
-            3. Update the model's weights using an optimizer.
-        - Must periodically evaluate the model's loss on the validation set.
-        - Must save at least one model checkpoint to disk upon completion or
-          at regular intervals.
+        This method must orchestrate the training process for a specified number
+        of iterations (`max_iters`). In each iteration, it must:
+        1. Fetch a batch of data using the dataset's `get_batch` method.
+        2. Perform a forward and backward pass to compute gradients.
+        3. Update the model's weights using the optimizer.
+        Periodically (every `eval_interval` iterations), it should evaluate the
+        model's performance on a validation set and report the loss. The model's
+        parameters should be demonstrably updated after training.
+
+        Args:
+            max_iters (int): The total number of training iterations to run.
+            eval_interval (int): The frequency (in iterations) at which to
+                perform and report evaluation.
+            batch_size (int): The batch size to use for training and evaluation.
         """
         # TODO: Implement this
-        raise NotImplementedError("Subclasses must implement the train method.")
+        raise NotImplementedError("Subclasses must implement the training loop.")

@@ -1,440 +1,362 @@
-import os
-import struct
-from typing import List
+# test_capstone.py
+#
+# This file contains a suite of pytest tests for a capstone project that
+# involves building a miniature GPT model. The tests are divided into three
+# sections: unit tests for each core component (TextDataset, MiniGPT,
+# MiniTrainer) and an integration test to verify that the components work
+# together as expected.
 
-import numpy as np
+import copy
+
 import pytest
 import torch
 
-# Assume the student's implementation is in a file named 'implementation.py'
-# that is in the same directory as the test file.
-from implementation import MiniDataProcessor, MiniGPTModel, MiniTrainer
-
-# --- Constants for Testing ---
-VOCAB_SIZE = 65
-BLOCK_SIZE = 8
-N_LAYER = 2
-N_HEAD = 2
-N_EMBD = 16
-BATCH_SIZE = 4
-MAX_ITERS = 10
-LEARNING_RATE = 1e-3
+# Attempt to import student's concrete implementations.
+# If these imports fail, it means the student has not created the required files
+# or has named the classes incorrectly.
+try:
+    from implementation import MiniGPT, MiniTrainer, TextDataset
+except ImportError:
+    # Create dummy classes to allow the test file to be parsed by pytest,
+    # but all tests will fail. This provides a clearer error message than a
+    # raw ImportError.
+    class MissingImplementation:
+        def __init__(self, *args, **kwargs):
+            raise ImportError(
+                "Failed to import one or more required classes: "
+                "TextDataset, MiniGPT, MiniTrainer. "
+                "Please ensure they are defined in 'implementation.py'."
+            )
+    TextDataset = MiniGPT = MiniTrainer = MissingImplementation
 
 
 # --- Fixtures ---
 
-
 @pytest.fixture
-def data_processor_fixture() -> MiniDataProcessor:
-    """Provides a default instance of MiniDataProcessor."""
-    return MiniDataProcessor(vocab_size=VOCAB_SIZE)
-
-
-@pytest.fixture
-def model_fixture() -> MiniGPTModel:
-    """Provides a default instance of MiniGPTModel with minimal params."""
-    return MiniGPTModel(
-        vocab_size=VOCAB_SIZE,
-        block_size=BLOCK_SIZE,
-        n_layer=N_LAYER,
-        n_head=N_HEAD,
-        n_embd=N_EMBD,
-    )
+def text_dataset_fixture() -> TextDataset:
+    """Provides a consistent, simple TextDataset instance for testing."""
+    # A simple, repetitive corpus to make behavior predictable.
+    # Vocab: 'a', 'b', 'c', ' '. (size 4)
+    raw_text = "abc abc abc abc abc abc"
+    # STUDENT_HINT: This fixture creates a TextDataset. If tests using it fail,
+    # check your TextDataset constructor and data processing logic.
+    return TextDataset(raw_text=raw_text, block_size=4, split_ratio=0.8)
 
 
 @pytest.fixture
-def dummy_data_files(tmp_path):
-    """Creates dummy train and val .bin files for the trainer tests."""
-    train_path = tmp_path / "train.bin"
-    val_path = tmp_path / "val.bin"
-    # Create simple, predictable data (a repeating sequence 0..49)
-    # The model should be able to learn this simple pattern.
-    data = np.array([i % 50 for i in range(1000)], dtype=np.uint16)
-    data.tofile(train_path)
-    data.tofile(val_path)
-    return str(train_path), str(val_path)
+def mini_gpt_fixture(text_dataset_fixture: TextDataset) -> MiniGPT:
+    """Provides a consistent, small MiniGPT instance for testing."""
+    # Model parameters are kept small for fast test execution.
+    config = {
+        "vocab_size": text_dataset_fixture.vocab_size,
+        "block_size": 4,
+        "n_layer": 2,
+        "n_head": 2,
+        "n_embd": 16,
+    }
+    # STUDENT_HINT: This fixture creates a MiniGPT model. If tests using it fail,
+    # check your model's __init__ method and layer definitions.
+    return MiniGPT(**config)
 
 
-# --- Unit Tests for MiniDataProcessor ---
+@pytest.fixture
+def mini_trainer_fixture(mini_gpt_fixture: MiniGPT, text_dataset_fixture: TextDataset) -> MiniTrainer:
+    """Provides a basic MiniTrainer instance for testing."""
+    # STUDENT_HINT: This fixture wires the model and dataset into the trainer.
+    # Failures here could point to issues in the MiniTrainer's constructor.
+    return MiniTrainer(model=mini_gpt_fixture, dataset=text_dataset_fixture, learning_rate=1e-3, device='cpu')
 
 
-def test_dataprocessor_prepare_data_creates_file(data_processor_fixture, tmp_path):
+# --- Unit Tests for TextDataset ---
+
+def test_textdataset_get_batch_shapes(text_dataset_fixture: TextDataset):
     """
-    Verifies that calling prepare_data creates an output file at the specified path.
-
-    Why: This is a fundamental check to ensure the data processing step produces
-    any output at all, which is the primary contract of the method.
+    Verifies that get_batch() returns tensors of the correct shape.
+    Why: The model and training loop rely on consistently shaped input and target tensors.
     """
-    # STUDENT_HINT: If this fails, your `prepare_data` method might not be
-    # correctly opening and writing to the `output_file` path provided. Check
-    # your file I/O operations (e.g., using `with open(...)`).
-    output_file = tmp_path / "test.bin"
-    text = "hello world"
-    data_processor_fixture.prepare_data(text, str(output_file))
-    assert output_file.exists(), f"Expected file '{output_file}' to be created, but it was not."
+    batch_size = 16
+    xb, yb = text_dataset_fixture.get_batch('train', batch_size=batch_size)
+
+    expected_shape = (batch_size, text_dataset_fixture.block_size)
+    assert xb.shape == expected_shape, f"Input batch 'xb' has wrong shape. Expected {expected_shape}, got {xb.shape}"
+    assert yb.shape == expected_shape, f"Target batch 'yb' has wrong shape. Expected {expected_shape}, got {yb.shape}"
+    # STUDENT_HINT: This test checks the shape of the tensors from `get_batch`.
+    # If it fails, check the logic where you stack the individual sequences into a batch tensor.
 
 
-def test_dataprocessor_prepare_data_writes_correct_tokens(data_processor_fixture, tmp_path):
+def test_textdataset_token_values_in_range(text_dataset_fixture: TextDataset):
     """
-    Verifies that the binary file contains the correct token IDs for a simple text.
-
-    Why: This test checks the core tokenization and encoding logic. The numerical
-    representation must be correct for the model to learn. It also verifies that
-    the data is serialized as uint16 as per the contract.
+    Verifies that all token IDs in a batch are valid indices for the vocabulary.
+    Why: Token IDs outside the vocabulary range will cause embedding lookups to fail.
     """
-    # STUDENT_HINT: This test failure suggests a problem in your vocabulary
-    # creation or the text-to-token-ID mapping. Ensure your char-to-int
-    # mapping is consistent and that you're writing the correct integer IDs
-    # to the file in uint16 format.
-    output_file = tmp_path / "test.bin"
-    text = "hello"
-    data_processor_fixture.prepare_data(text, str(output_file))
+    xb, yb = text_dataset_fixture.get_batch('train', batch_size=16)
+    vocab_size = text_dataset_fixture.vocab_size
 
-    # The interface doesn't expose the vocab, so we must assume the implementation
-    # has a helper `encode` method to verify the output consistently.
-    try:
-        expected_ids = data_processor_fixture.encode(text)
-    except AttributeError:
-        pytest.fail(
-            "The MiniDataProcessor implementation is expected to have an `encode` "
-            "method to allow for verification and practical use, even though it's "
-            "not formally in the IMiniDataProcessor interface."
-        )
-
-    with open(output_file, 'rb') as f:
-        # The contract specifies uint16, so each token is 2 bytes.
-        num_tokens = len(expected_ids)
-        content = f.read()
-        assert len(content) == num_tokens * 2, (
-            "The binary file size is incorrect. Expected each token to be "
-            f"stored as a 2-byte uint16. For {num_tokens} tokens, expected "
-            f"{num_tokens*2} bytes, but got {len(content)}."
-        )
-        # Unpack the binary data into a tuple of integers ('H' is for uint16)
-        unpacked_tokens = struct.unpack(f'{num_tokens}H', content)
-        actual_ids = list(unpacked_tokens)
-
-    assert actual_ids == expected_ids, (
-        "The token IDs in the .bin file do not match the expected encoding. "
-        f"Expected {expected_ids} because that is what the processor's own "
-        f"`encode` method produced, but file contained {actual_ids}."
-    )
+    assert (xb >= 0).all() and (xb < vocab_size).all(), f"Input batch 'xb' contains token IDs out of vocabulary range [0, {vocab_size-1}]"
+    assert (yb >= 0).all() and (yb < vocab_size).all(), f"Target batch 'yb' contains token IDs out of vocabulary range [0, {vocab_size-1}]"
+    # STUDENT_HINT: This test ensures token IDs are valid. If it fails, review your
+    # character-to-integer mapping (encoder) and the tokenization process.
 
 
-def test_dataprocessor_vocab_size_is_respected(tmp_path):
+def test_textdataset_batch_content_is_shifted(text_dataset_fixture: TextDataset):
     """
-    Verifies that the generated tokens do not have IDs >= the specified vocab_size.
-
-    Why: The model's final layer size depends on vocab_size, so it's critical
-    that the data processor respects this limit to prevent index-out-of-bounds errors.
+    Verifies that the target tensor 'yb' is the input tensor 'xb' shifted by one position.
+    Why: This relationship is fundamental to next-token prediction, where the model
+    learns to predict the next token in the sequence.
     """
-    # STUDENT_HINT: If this fails, your vocabulary building logic might not be
-    # correctly capping the number of unique tokens to `vocab_size`. Make sure
-    # to handle cases where the text has more unique characters than `vocab_size`.
-    limited_vocab_size = 5
-    processor = MiniDataProcessor(vocab_size=limited_vocab_size)
-    # This text has 10 unique characters ('a' through 'j')
-    text = "abcdefghijabcdefghij"
-    output_file = tmp_path / "vocab_test.bin"
-    processor.prepare_data(text, str(output_file))
-
-    with open(output_file, 'rb') as f:
-        content = f.read()
-        num_tokens = len(content) // 2
-        unpacked_tokens = struct.unpack(f'{num_tokens}H', content)
-        for token_id in unpacked_tokens:
-            assert token_id < limited_vocab_size, (
-                f"Found token ID {token_id} which is >= the specified "
-                f"vocab_size of {limited_vocab_size}. The vocabulary has not been "
-                "correctly constrained."
-            )
+    xb, yb = text_dataset_fixture.get_batch('train', batch_size=8)
+    # For any sequence `i` in the batch, `yb[i, j]` should be the token that
+    # follows `xb[i, j]` in the original text. This means `yb` should be a
+    # shifted version of `xb`.
+    are_equal = torch.equal(xb[:, 1:], yb[:, :-1])
+    assert are_equal, "Target batch 'yb' is not a one-step-shifted version of 'xb'. yb[:, :-1] should equal xb[:, 1:]"
+    # STUDENT_HINT: This test checks the core logic of next-token prediction setup.
+    # `yb` should be the sequence that comes immediately after `xb`. If this fails,
+    # re-examine how you construct the `x` and `y` tensors from the raw data in `get_batch`.
 
 
-# --- Unit Tests for MiniGPTModel ---
-
-
-def test_model_forward_pass_shapes_without_targets(model_fixture):
+def test_textdataset_encoder_decoder_roundtrip(text_dataset_fixture: TextDataset):
     """
-    Verifies the output shapes of a forward pass when no targets are provided.
-
-    Why: This confirms the model's basic architecture produces logits of the
-    correct dimensions (B, T, C), and that loss is correctly returned as None,
-    fulfilling the interface contract for inference-style passes.
+    Verifies that encoding a string and then decoding it results in the original string.
+    Why: A consistent encoding/decoding scheme is essential for interpreting the
+    model's input and output.
     """
-    # STUDENT_HINT: A failure here points to an issue in your model's architecture.
-    # Check the final linear layer; its output dimension should be `vocab_size`.
-    # The other dimensions should be `batch_size` and `block_size`. Also ensure
-    # `loss` is `None` when `targets` are not provided.
-    idx = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, BLOCK_SIZE))
-    logits, loss = model_fixture(idx, targets=None)
+    original_text = "abc"
+    encoder = text_dataset_fixture.encoder
+    decoder = text_dataset_fixture.decoder
 
-    expected_logits_shape = (BATCH_SIZE, BLOCK_SIZE, VOCAB_SIZE)
-    assert logits.shape == expected_logits_shape, (
-        f"Logits shape is incorrect. Expected {expected_logits_shape} because the "
-        f"output should be (batch, time, channels/vocab), but got {logits.shape}."
-    )
-    assert loss is None, f"Expected loss to be None when targets are not provided, but got {type(loss)}."
+    encoded = encoder(original_text)
+    decoded_text = decoder(encoded)
+
+    assert isinstance(encoded, list) and all(isinstance(i, int) for i in encoded), "Encoder should return a list of integers."
+    assert isinstance(decoded_text, str), "Decoder should return a string."
+    assert original_text == decoded_text, f"Encoder/Decoder roundtrip failed. Expected '{original_text}', got '{decoded_text}'"
+    # STUDENT_HINT: This test checks your `encoder` and `decoder` functions.
+    # Make sure your string-to-int and int-to-string mappings are perfectly symmetric.
 
 
-def test_model_forward_pass_with_targets(model_fixture):
+# --- Unit Tests for MiniGPT ---
+
+def test_minigpt_forward_pass_shapes(mini_gpt_fixture: MiniGPT):
     """
-    Verifies that a forward pass with targets computes a single, scalar loss value.
-
-    Why: This is the core training step. The model must be able to calculate a
-    valid, scalar loss value to enable backpropagation and learning.
+    Verifies the `forward` method returns logits of the correct shape and no loss when targets are None.
+    Why: The output logits tensor must have dimensions corresponding to (batch, time, vocab_size)
+    for the loss function and generation logic to work correctly.
     """
-    # STUDENT_HINT: If loss is None, you forgot to calculate it when `targets`
-    # are present. If the loss is not a scalar (e.g., a tensor with multiple
-    # elements), you might need to reshape the logits or targets before passing
-    # them to the cross-entropy loss function.
-    idx = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, BLOCK_SIZE))
-    targets = torch.randint(0, VOCAB_SIZE, (BATCH_SIZE, BLOCK_SIZE))
+    batch_size = 8
+    block_size = mini_gpt_fixture.block_size
+    vocab_size = mini_gpt_fixture.vocab_size
 
-    logits, loss = model_fixture(idx, targets)
+    # Create a dummy input tensor of token indices
+    idx = torch.randint(0, vocab_size, (batch_size, block_size))
+    logits, loss = mini_gpt_fixture(idx, targets=None)
 
-    expected_logits_shape = (BATCH_SIZE, BLOCK_SIZE, VOCAB_SIZE)
-    assert logits.shape == expected_logits_shape, (
-        f"Logits shape is incorrect. Expected {expected_logits_shape}, "
-        f"but got {logits.shape}."
-    )
-    assert loss is not None, "Expected loss to be computed, but it was None."
-    assert isinstance(loss, torch.Tensor), f"Expected loss to be a torch.Tensor, but got {type(loss)}."
-    assert loss.dim() == 0, f"Expected loss to be a scalar tensor, but it has dimension {loss.dim()}."
+    expected_logits_shape = (batch_size, block_size, vocab_size)
+    assert logits.shape == expected_logits_shape, f"Logits shape is incorrect. Expected {expected_logits_shape}, got {logits.shape}"
+    assert loss is None, f"Loss should be None when targets are not provided, but it was not."
+    # STUDENT_HINT: This test checks the output shape of your model's `forward` pass.
+    # The final layer in your model should be a Linear layer that maps the embedding dimension to the vocabulary size.
 
 
-def test_model_generate_output_shape(model_fixture):
+def test_minigpt_forward_pass_with_loss(mini_gpt_fixture: MiniGPT):
     """
-    Verifies that the generate method produces an output of the correct length.
-
-    Why: This test ensures the autoregressive generation loop runs for the
-    correct number of steps and correctly appends new tokens to the original context.
+    Verifies the `forward` method returns a scalar loss value when targets are provided.
+    Why: The calculated loss is the primary signal for training. It must be a single,
+    scalar value for backpropagation.
     """
-    # STUDENT_HINT: A shape mismatch here suggests a problem in your `generate`
-    # loop. Are you concatenating the newly generated token to the context in
-    # each step? Is the loop running exactly `max_new_tokens` times?
-    start_context_len = 5
-    max_new_tokens = 10
-    idx = torch.randint(0, VOCAB_SIZE, (1, start_context_len))
+    batch_size = 8
+    block_size = mini_gpt_fixture.block_size
+    vocab_size = mini_gpt_fixture.vocab_size
 
-    # The reference implementation will fail if the total length exceeds block_size.
-    # To test the shape, we limit generation to stay within bounds.
-    max_new_tokens = BLOCK_SIZE - start_context_len
+    idx = torch.randint(0, vocab_size, (batch_size, block_size))
+    targets = torch.randint(0, vocab_size, (batch_size, block_size))
 
-    generated_sequence = model_fixture.generate(idx, max_new_tokens=max_new_tokens)
+    _, loss = mini_gpt_fixture(idx, targets=targets)
 
-    expected_len = start_context_len + max_new_tokens
-    assert generated_sequence.shape == (1, expected_len), (
-        f"Generated sequence shape is incorrect. Expected (1, {expected_len}) "
-        f"because it should be original_length+new_tokens, but got {generated_sequence.shape}."
-    )
+    assert loss is not None, "Loss should not be None when targets are provided."
+    assert isinstance(loss, torch.Tensor), f"Loss should be a torch.Tensor, but got {type(loss)}"
+    assert loss.ndim == 0, f"Loss must be a scalar (0-dimensional tensor), but its shape is {loss.shape}"
+    # STUDENT_HINT: This test checks if loss calculation is correct. You should use `torch.nn.functional.cross_entropy`.
+    # Remember to reshape your logits and targets to (B*T, C) and (B*T) respectively before passing them to the loss function.
 
 
-def test_model_generate_handles_long_context(model_fixture):
+def test_minigpt_causal_attention_mask(mini_gpt_fixture: MiniGPT):
     """
-    Verifies that generation works correctly when the initial context is shorter
-    than block_size and generation does not cause it to exceed block_size.
-    
-    Why: The model's context window is finite. The reference implementation does
-    not truncate context, so this test is adapted to verify generation within
-    the allowed context limit.
+    Verifies that the model's output for a given token is not influenced by future tokens.
+    Why: This is the "auto-regressive" property of a GPT. A token's prediction can only
+    depend on itself and the tokens that came before it.
     """
-    # STUDENT_HINT: This test fails if you don't correctly crop the context
-    # inside the `generate` loop. The input to the `forward` call should never
-    # have a sequence length greater than `block_size`. Remember to take only the
-    # last `block_size` tokens from the context for prediction.
-    # FIX: The reference implementation does NOT handle long contexts.
-    # This test is modified to use a short context to prevent crashing.
-    short_context_len = BLOCK_SIZE - 5  # e.g., 3
-    max_new_tokens = 3
-    idx = torch.randint(0, VOCAB_SIZE, (1, short_context_len))
+    mini_gpt_fixture.eval()  # Set to evaluation mode to disable dropout for determinism
+    batch_size = 1
+    block_size = mini_gpt_fixture.block_size
+    vocab_size = mini_gpt_fixture.vocab_size
 
-    try:
-        generated_sequence = model_fixture.generate(idx, max_new_tokens=max_new_tokens)
-        expected_len = short_context_len + max_new_tokens
-        assert generated_sequence.shape == (1, expected_len), (
-            "Generated sequence shape is incorrect. Even with a long context, the "
-            f"final output must include the full original context. Expected "
-            f"(1, {expected_len}), but got {generated_sequence.shape}."
-        )
-    except Exception as e:
-        pytest.fail(
-            f"The `generate` method failed even with a context shorter than "
-            f"`block_size`. Error: {e}"
-        )
+    # Create two input sequences that are identical except for the very last token.
+    base_seq = torch.randint(0, vocab_size, (batch_size, block_size))
+    seq1 = base_seq.clone()
+    seq2 = base_seq.clone()
+    seq2[0, -1] = (seq2[0, -1] + 1) % vocab_size  # Change the last token
+
+    # The output for the second-to-last token should be identical for both sequences.
+    # A change in the *future* (last token) should not affect the prediction for the present (second-to-last token).
+    logits1, _ = mini_gpt_fixture(seq1)
+    logits2, _ = mini_gpt_fixture(seq2)
+
+    # We check the logits at the second to last position (index -2)
+    logits_at_penultimate_step1 = logits1[0, -2, :]
+    logits_at_penultimate_step2 = logits2[0, -2, :]
+
+    assert torch.allclose(logits_at_penultimate_step1, logits_at_penultimate_step2, atol=1e-6), \
+        "Changing a future token affected a past token's logits. Check your causal attention mask."
+    # STUDENT_HINT: This is a critical test for the Transformer block. If it fails, your
+    # causal self-attention mask is likely incorrect. Ensure you are using `torch.tril`
+    # to create a lower-triangular mask and applying it correctly before the softmax in the attention mechanism.
 
 
 # --- Unit Tests for MiniTrainer ---
 
-
-def test_trainer_train_decreases_loss(model_fixture, dummy_data_files):
+def test_minitrainer_train_updates_model_weights(mini_trainer_fixture: MiniTrainer):
     """
-    Verifies that the training process reduces the model's validation loss.
-
-    Why: This is a "smoke test" for training. If the loss doesn't decrease,
-    the optimization step (backpropagation, optimizer step) is likely broken.
+    Verifies that calling train() for a few steps actually changes the model's parameters.
+    Why: If the weights don't change, the model is not learning. This tests the basic
+    mechanics of the training loop (forward, backward, step).
     """
-    # STUDENT_HINT: If loss increases or stays the same, check your training loop.
-    # Are you calling `optimizer.zero_grad()`, `loss.backward()`, and
-    # `optimizer.step()` correctly and in the right order? Is your learning
-    # rate appropriate (not too high)?
-    train_file, val_file = dummy_data_files
-    trainer = MiniTrainer(
-        model=model_fixture,
-        train_data_file=train_file,
-        val_data_file=val_file,
-        batch_size=BATCH_SIZE,
-        learning_rate=LEARNING_RATE,
-        max_iters=MAX_ITERS * 2,  # More iters to ensure learning
-    )
-    
-    # We must assume the trainer has a helper method to estimate loss, as this
-    # is a standard part of a training loop.
+    model = mini_trainer_fixture.model
+    # Deepcopy the initial state of the model's parameters
+    initial_params = [p.clone().detach() for p in model.parameters()]
+
+    # Run training for a few iterations
+    mini_trainer_fixture.train(max_iters=3, batch_size=2)
+
+    # Get the new parameters
+    final_params = [p.clone().detach() for p in model.parameters()]
+
+    # Check that at least one parameter tensor has changed
+    params_have_changed = any(not torch.equal(p_init, p_final) for p_init, p_final in zip(initial_params, final_params))
+
+    assert params_have_changed, "Model parameters did not change after a few training steps. Check optimizer.step() and loss.backward()."
+    # STUDENT_HINT: This test ensures your training loop works. If it fails, check these things in your `train` method:
+    # 1. Are you calling `optimizer.zero_grad()`?
+    # 2. Are you calling `loss.backward()`?
+    # 3. Are you calling `optimizer.step()`?
+
+
+def test_minitrainer_train_completes_without_error(mini_trainer_fixture: MiniTrainer):
+    """
+    Verifies that the train method can run for a few iterations, including evaluation, without crashing.
+    Why: This is a basic smoke test to catch runtime errors in the training or evaluation loops.
+    """
     try:
-        initial_losses = trainer.estimate_loss()
-    except AttributeError:
-        pytest.fail(
-            "The MiniTrainer is expected to have a method like `estimate_loss()` "
-            "to enable validation checks for testing."
-        )
-
-    trainer.train()
-    final_losses = trainer.estimate_loss()
-    
-    initial_val_loss = initial_losses['val']
-    final_val_loss = final_losses['val']
-
-    assert final_val_loss < initial_val_loss, (
-        "Validation loss did not decrease after training. "
-        f"Initial val loss: {initial_val_loss:.4f}, Final val loss: {final_val_loss:.4f}. "
-        "This indicates that learning is not occurring."
-    )
-
-
-def test_trainer_creates_checkpoint(model_fixture, dummy_data_files, tmp_path):
-    """
-    Verifies that the trainer saves a model checkpoint file after training.
-
-    Why: Saving checkpoints is crucial for resuming training and for using a
-    trained model. This test ensures this key feature is implemented as per the contract.
-    """
-    # STUDENT_HINT: Make sure you are using `torch.save()` to save the model's
-    # `state_dict()` to a file at the end of the `train` method. The path
-    # should be predictable, for instance, 'latest_checkpoint.pt'.
-    train_file, val_file = dummy_data_files
-    trainer = MiniTrainer(
-        model=model_fixture,
-        train_data_file=train_file,
-        val_data_file=val_file,
-        batch_size=BATCH_SIZE,
-        learning_rate=LEARNING_RATE,
-        max_iters=1,  # Only need one iteration to ensure a save happens
-    )
-
-    # To avoid clutter, we change the CWD for this test to the temp directory.
-    os.chdir(tmp_path)
-    checkpoint_file = "latest_checkpoint.pt"  # A reasonable default name.
-
-    trainer.train()
-
-    assert os.path.exists(checkpoint_file), (
-        f"Expected trainer to save a checkpoint file named '{checkpoint_file}' "
-        f"in the current directory, but it was not found."
-    )
-    # Check that the file is a valid state dictionary
-    try:
-        state_dict = torch.load(checkpoint_file)
-        new_model = type(model_fixture)(
-            vocab_size=VOCAB_SIZE, block_size=BLOCK_SIZE, n_layer=N_LAYER,
-            n_head=N_HEAD, n_embd=N_EMBD
-        )
-        new_model.load_state_dict(state_dict)
+        mini_trainer_fixture.train(max_iters=2, eval_interval=1, batch_size=2)
     except Exception as e:
-        pytest.fail(f"Checkpoint file '{checkpoint_file}' could not be loaded. Error: {e}")
+        pytest.fail(f"trainer.train() raised an exception: {e}")
+    # STUDENT_HINT: This is a "smoke test." If it fails, there's a runtime error in your `train` loop.
+    # Look at the full error traceback to identify the line causing the problem. It could be in data fetching,
+    # the model forward pass, or the evaluation logic.
+
+
+def test_minitrainer_zero_lr_does_not_update_weights(mini_gpt_fixture: MiniGPT, text_dataset_fixture: TextDataset):
+    """
+    Verifies that with a learning rate of 0, the model's weights do not change.
+    Why: This confirms that the optimizer and learning rate are correctly wired and that
+    weight updates are a direct result of the optimization step, not some other side effect.
+    """
+    # Create a trainer with a learning rate of 0.0
+    trainer = MiniTrainer(model=mini_gpt_fixture, dataset=text_dataset_fixture, learning_rate=0.0)
+    model = trainer.model
+
+    initial_params = [p.clone().detach() for p in model.parameters()]
+    trainer.train(max_iters=3, batch_size=2)
+    final_params = [p.clone().detach() for p in model.parameters()]
+
+    # Check that NO parameter tensors have changed
+    params_are_identical = all(torch.equal(p_init, p_final) for p_init, p_final in zip(initial_params, final_params))
+
+    assert params_are_identical, "Model parameters changed even with a learning rate of 0.0."
+    # STUDENT_HINT: This is a sanity check. If parameters change with LR=0, something is fundamentally
+    # wrong. It's unlikely to fail if the previous trainer test passes, but it's good practice.
 
 
 # --- Integration Test ---
 
-
 @pytest.mark.integration
-def test_full_training_and_generation_pipeline(tmp_path):
+def test_integration_training_loop_improves_model():
     """
-    Tests the end-to-end process: data prep, training, loading, and generation.
-
-    Why: This test ensures all components work together as specified. It verifies
-    that after training on a small dataset, the model can be saved, loaded,
-    and used to generate plausible text related to the training data.
+    Verifies the end-to-end process: training the model on the dataset reduces the loss.
+    Why: This is the most important test. It confirms that all components (dataset, model,
+    trainer) work together to achieve the fundamental goal of machine learning: improving
+    a model's performance on a task.
     """
-    # STUDENT_HINT: This is the final boss. A failure here could be in any
-    # component or in the way they interact.
-    # 1. DataProcessor: Is the data being tokenized and saved correctly?
-    # 2. Trainer: Is the model actually learning? Does the saved checkpoint work?
-    # 3. Model: Is your `generate` method working after loading weights?
-    # Start by debugging the individual unit tests for each component first.
-
-    # 1. Setup: Prepare the data
-    data_path = tmp_path / "tiny_data.bin"
-    checkpoint_path = tmp_path / "latest_checkpoint.pt"
-    text_data = "the quick brown fox jumps over the lazy dog. the lazy dog sleeps."
-    # Vocab size needs to be large enough for all unique chars in the text.
-    processor_vocab_size = len(set(text_data))
-    processor = MiniDataProcessor(vocab_size=processor_vocab_size)
-    processor.prepare_data(text_data, str(data_path))
-
-    # 2. Training
+    # 1. Setup: Create a small, deterministic training environment
     torch.manual_seed(1337)
-    model_block_size = 8
-    model = MiniGPTModel(
-        vocab_size=processor_vocab_size, block_size=model_block_size, n_layer=2, n_head=2, n_embd=32
-    )
-    trainer = MiniTrainer(
-        model=model,
-        train_data_file=str(data_path),
-        val_data_file=str(data_path),  # Use same data for val in this simple case
-        batch_size=4,
-        learning_rate=1e-2,  # Higher LR for faster learning on tiny data
-        max_iters=150,  # Enough iterations to learn the simple pattern
-    )
-    os.chdir(tmp_path)
-    trainer.train()
-
-    # 3. Verification: Load the trained model and generate text
-    assert checkpoint_path.exists(), "Trainer did not save the final checkpoint."
-
-    trained_model = MiniGPTModel(
-        vocab_size=processor_vocab_size, block_size=model_block_size, n_layer=2, n_head=2, n_embd=32
-    )
-    trained_model.load_state_dict(torch.load(checkpoint_path))
-    trained_model.eval()
+    corpus = "hello world. this is a simple test. hello world again."
+    block_size = 8
+    
+    # STUDENT_HINT: This integration test uses all your components together.
+    # A failure here means the pieces don't fit, even if they pass unit tests.
+    # Read the failure message carefully to see which assertion failed.
 
     try:
-        # FIX: Use a shorter start context that won't cause an index error
-        # in the reference implementation's generate method.
-        start_context = 'the '
-        start_tokens = processor.encode(start_context)
-        decode_func = processor.decode
-    except AttributeError:
-        pytest.fail(
-            "The MiniDataProcessor implementation requires `encode` and `decode` "
-            "methods for this integration test to verify generation."
-        )
+        dataset = TextDataset(corpus, block_size=block_size, split_ratio=0.8)
+        model = MiniGPT(vocab_size=dataset.vocab_size, block_size=block_size, n_layer=2, n_head=2, n_embd=32)
+        trainer = MiniTrainer(model, dataset, learning_rate=1e-2, device='cpu')
+    except Exception as e:
+        pytest.fail(f"Failed during setup of integration test: {e}")
 
-    start_idx = torch.tensor(start_tokens, dtype=torch.long, device='cpu').unsqueeze(0)
-    # FIX: Reduce max_new_tokens so that len(start_tokens) + max_new_tokens <= block_size
-    max_new_tokens = model_block_size - len(start_tokens)
-    generated_tokens_tensor = trained_model.generate(start_idx, max_new_tokens)
-    generated_tokens = generated_tokens_tensor[0].tolist()
+    # Capture initial model state
+    initial_params = [p.clone().detach() for p in model.parameters()]
 
-    assert len(generated_tokens) == len(start_tokens) + max_new_tokens, (
-        f"The generated sequence length is incorrect. Expected "
-        f"{len(start_tokens) + max_new_tokens}, got {len(generated_tokens)}."
-    )
+    # 2. Evaluate initial performance on a fixed validation batch
+    # We must use the same batch for initial and final loss to ensure a fair comparison.
+    val_xb, val_yb = dataset.get_batch('val', batch_size=8)
+    model.eval()
+    _, initial_loss = model(val_xb, val_yb)
+    model.train()
+    assert initial_loss is not None, "Initial loss calculation failed."
 
-    generated_text = decode_func(generated_tokens)
-    # FIX: Update plausible words for the new, shorter context.
-    plausible_words = ['quick', 'lazy']
-    found_plausible_word = any(word in generated_text for word in plausible_words)
+    # 3. Train the model
+    trainer.train(max_iters=100, eval_interval=50, batch_size=8)
 
-    assert found_plausible_word, (
-        "Generated text does not seem to follow the training data pattern. "
-        f"After '{start_context}', expected something like 'quick...' or 'lazy...', but got: '{generated_text}'"
-    )
+    # 4. Evaluate final performance on the SAME validation batch
+    model.eval()
+    _, final_loss = model(val_xb, val_yb)
+    model.train()
+    assert final_loss is not None, "Final loss calculation failed."
+
+    # Capture final model state
+    final_params = [p.clone().detach() for p in model.parameters()]
+
+    # 5. Assertions
+    # Assertion 1: Model parameters must have changed.
+    params_have_changed = any(not torch.equal(p_init, p_final) for p_init, p_final in zip(initial_params, final_params))
+    assert params_have_changed, "Integration Test Failed: Model parameters did not change after training."
+    # STUDENT_HINT: If this fails, your trainer's `optimizer.step()` might not be working correctly.
+
+    # Assertion 2: The validation loss must decrease by a meaningful amount (e.g., 10%).
+    # This shows the model is actually learning, not just changing weights randomly.
+    assert final_loss < initial_loss * 0.9, \
+        f"Integration Test Failed: Loss did not decrease significantly. Initial: {initial_loss.item():.4f}, Final: {final_loss.item():.4f}"
+    # STUDENT_HINT: If loss doesn't decrease, the problem is deep. It could be:
+    # - The model architecture is flawed (e.g., bad activation functions, no non-linearity).
+    # - The data loading is incorrect (e.g., `xb` and `yb` don't align).
+    # - The loss calculation in the model's forward pass is wrong.
+    # - The learning rate is too high or too low.
+
+    # Assertion 3: Generate some text to see if it's learned basic patterns.
+    # This is a "soft" check for basic coherence.
+    start_context = torch.zeros((1, 1), dtype=torch.long, device='cpu') # Start with the first token in vocab
+    
+    # Simple generation loop
+    generated_indices = model.generate(start_context, max_new_tokens=20)[0].tolist()
+    generated_text = dataset.decoder(generated_indices)
+    
+    # Check for non-randomness: a simple check is to see if any 2-character
+    # substring of the generated text also exists in the original corpus.
+    corpus_bigrams = {corpus[i:i+2] for i in range(len(corpus) - 1)}
+    generated_bigrams = {generated_text[i:i+2] for i in range(len(generated_text) - 1)}
+    
+    assert len(generated_text) > 1, "Generation produced an empty or single-character string."
+    assert len(corpus_bigrams.intersection(generated_bigrams)) > 0, \
+        f"Integration Test Failed: Generated text '{generated_text}' shows no patterns from the training corpus '{corpus}'"
+    # STUDENT_HINT: If this fails, it means the model isn't learning patterns. This is related to the loss
+    # not decreasing. Check that your generation logic correctly samples from the model's output logits.

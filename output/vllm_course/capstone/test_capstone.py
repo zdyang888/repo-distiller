@@ -1,393 +1,411 @@
-An analysis of the test failures revealed a `SyntaxError`, caused by explanatory text being included directly in the Python file without being commented out or placed in a docstring. Additionally, a function definition at the end of the file was incomplete.
+An analysis of the test failure shows a `SyntaxError` at the end of the original test file. The function definition for `test_SimpleKVBlockManager_freeing` was incomplete, causing pytest to fail during test collection.
 
-The fix involves removing the non-code text and completing the test suite with robust unit and integration tests that cover all components of the system. The critical `test_MiniLLMEngine_raises_error_on_oom` test, which was the source of the original timeout, has been implemented according to the logic described in the problem statement. This ensures it correctly tests for out-of-memory conditions during token generation without causing an infinite loop.
+The fix involves:
+1.  Correcting the `SyntaxError` by fully implementing the `test_SimpleKVBlockManager_freeing` function.
+2.  Adding comprehensive unit tests for the `DummyExecutor`, `BasicScheduler`, and `MiniEngineCore` components, as these were missing from the truncated file.
+3.  Including a final end-to-end integration test for the `MockLLMEngine` to ensure all parts work together correctly.
+4.  Updating the `ScheduledRequest` helper to include `max_output_len`, which is required by the executor for correctly handling sequence length limits.
 
-The corrected test file is provided below.
+The corrected test file below is complete and robustly tests the contract of each component based on the provided reference implementation.
 
 ```python
-import pytest
-import threading
-import time
-from unittest.mock import MagicMock
+# test_capstone.py
+"""
+Pytest test file for the LLM Inference Engine Capstone Project.
 
-# Student's code is expected to be in a file named 'implementation.py'
-# This file should contain concrete classes that implement the interfaces.
-from implementation import (
-    Request,
-    SimpleTokenizer,
-    RequestQueue,
-    KVCacheSimulator,
-    MockModelRunner,
-    BatchScheduler,
-    MiniLLMEngine,
+This file contains unit tests for each component of the inference engine,
+as well as a final integration test to verify the end-to-end functionality
+of the system. The tests are designed to validate the contract-based behavior
+of each class defined in the interfaces.
+"""
+
+import pytest
+from collections import namedtuple
+
+# Attempt to import all the necessary classes from the student's implementation.
+# If any are missing, the tests will fail with an ImportError, which is expected.
+try:
+    from implementation import (
+        SimpleKVBlockManager,
+        DummyExecutor,
+        BasicScheduler,
+        MiniEngineCore,
+        MockLLMEngine,
+    )
+except ImportError as e:
+    # If imports fail, we create dummy classes to allow the test file to be
+    # parsed by pytest, but all tests will fail. This provides a clearer
+    # error message than a raw ImportError.
+    print(f"Failed to import implementation: {e}")
+    class SimpleKVBlockManager: pass
+    class DummyExecutor: pass
+    class BasicScheduler: pass
+    class MiniEngineCore: pass
+    class MockLLMEngine: pass
+
+# Helper data structure for tests involving scheduled requests
+# In a real engine, this would be a more complex object. For our tests,
+# it just needs to hold the data the DummyExecutor expects.
+# The reference BasicScheduler returns its internal _RequestState objects,
+# which have these attributes.
+ScheduledRequest = namedtuple(
+    "ScheduledRequest", ["request_id", "prompt", "generated_tokens", "max_output_len"]
 )
 
-# --------------------------------------------------------------------------
+
+# -----------------
 # Fixtures
-# --------------------------------------------------------------------------
+# -----------------
 
 @pytest.fixture
-def tokenizer():
-    """Provides a SimpleTokenizer instance for tests."""
-    return SimpleTokenizer()
+def kv_block_manager():
+    """Provides a SimpleKVBlockManager with 100 total blocks."""
+    # STUDENT_HINT: This fixture creates the memory manager. If tests using it
+    # fail, check your SimpleKVBlockManager's constructor and allocation logic.
+    return SimpleKVBlockManager(num_total_blocks=100)
+
 
 @pytest.fixture
-def request_queue(tokenizer):
-    """Provides a fresh RequestQueue for each test."""
-    return RequestQueue(tokenizer)
+def mock_responses():
+    """Provides a standard set of mock prompt-response pairs for the executor."""
+    # STUDENT_HINT: This is the "model's knowledge". If executor tests fail,
+    # ensure your executor is correctly looking up prompts and returning tokens.
+    return {
+        "hello": "hello world",
+        "pytest": "pytest is a testing framework.",
+    }
+
 
 @pytest.fixture
-def kv_cache_simulator():
-    """Provides a KVCacheSimulator with 100 blocks of size 4."""
-    return KVCacheSimulator(total_blocks=100, block_size=4)
+def dummy_executor(mock_responses):
+    """Provides a DummyExecutor initialized with mock responses."""
+    # STUDENT_HINT: This fixture creates the executor. If tests involving it
+    # fail, check the DummyExecutor's constructor and execute_batch method.
+    return DummyExecutor(mock_responses=mock_responses)
+
 
 @pytest.fixture
-def mock_model_runner():
-    """Provides a MockModelRunner."""
-    return MockModelRunner(vocab_size=128) # ASCII range for SimpleTokenizer
+def basic_scheduler(kv_block_manager):
+    """Provides a BasicScheduler linked to a kv_block_manager."""
+    # STUDENT_HINT: This fixture creates the scheduler. Ensure its constructor
+    # correctly accepts a block manager.
+    return BasicScheduler(kv_block_manager=kv_block_manager)
+
 
 @pytest.fixture
-def batch_scheduler(kv_cache_simulator):
-    """Provides a BatchScheduler linked to a KV cache simulator."""
-    return BatchScheduler(kv_cache_simulator)
+def mini_engine_core(basic_scheduler, dummy_executor):
+    """Provides a MiniEngineCore with a scheduler and an executor."""
+    # STUDENT_HINT: This fixture links the core components. Check that your
+    # MiniEngineCore constructor correctly wires up the scheduler and executor.
+    return MiniEngineCore(scheduler=basic_scheduler, executor=dummy_executor)
+
 
 @pytest.fixture
-def mini_llm_engine():
-    """Provides a fully configured MiniLLMEngine for integration tests."""
-    return MiniLLMEngine(total_kv_blocks=100, kv_block_size=4, max_batch_size=4)
+def mock_llm_engine(mini_engine_core):
+    """Provides a MockLLMEngine connected to the core orchestrator."""
+    # STUDENT_HINT: This is the top-level client. Ensure its constructor
+    # correctly accepts the MiniEngineCore.
+    return MockLLMEngine(core_client=mini_engine_core)
 
 
-# --------------------------------------------------------------------------
-# Unit Tests: RequestQueue
-# --------------------------------------------------------------------------
+# -----------------
+# Unit Tests for SimpleKVBlockManager
+# -----------------
 
-def test_RequestQueue_adds_and_tokenizes_request(request_queue, tokenizer):
+def test_SimpleKVBlockManager_allocation(kv_block_manager):
     """
-    Verifies that add_request correctly tokenizes a prompt and creates a
-    Request object with 'PENDING' status. This is the primary entry point
-    for new work into the system.
+    Verifies that allocate(N) returns N unique block IDs and updates the
+    available block count correctly.
     """
-    prompt = "Hello"
-    request = request_queue.add_request(prompt, max_tokens=10)
-    
-    assert request is not None, "add_request should return the created Request object."
-    assert request.status == "PENDING", f"Expected initial status to be 'PENDING', got '{request.status}'"
-    expected_tokens = tokenizer.encode(prompt)
-    assert request.prompt_tokens == expected_tokens, \
-        f"Expected prompt tokens {expected_tokens}, got {request.prompt_tokens}"
+    initial_blocks = kv_block_manager.get_available_blocks()
+    assert initial_blocks == 100, "Initial block count should be 100"
 
-    pending_reqs = request_queue.get_pending_requests()
-    assert len(pending_reqs) == 1, "There should be exactly one pending request after adding one."
-    assert pending_reqs[0].request_id == request.request_id, "The request in the queue should be the one we just added."
+    allocated_blocks = kv_block_manager.allocate(5)
+    assert len(allocated_blocks) == 5, "Should allocate the exact number of requested blocks"
+    assert len(set(allocated_blocks)) == 5, "Allocated block IDs must be unique"
 
-def test_RequestQueue_get_pending_filters_by_status(request_queue):
-    """
-    Verifies that get_pending_requests returns only requests that are currently
-    in the 'PENDING' state, ignoring 'RUNNING' or 'COMPLETED' ones. This ensures
-    the scheduler only considers new, unprocessed requests.
-    """
-    req1 = request_queue.add_request("prompt1", max_tokens=5)
-    req2 = request_queue.add_request("prompt2", max_tokens=5)
-    
-    # Manually change the status of one request to simulate it being processed
-    req2.status = "RUNNING"
-    
-    pending_reqs = request_queue.get_pending_requests()
-    assert len(pending_reqs) == 1, "get_pending_requests should only return requests with 'PENDING' status."
-    assert pending_reqs[0].request_id == req1.request_id, \
-        f"Expected to find request {req1.request_id}, but found {pending_reqs[0].request_id}"
-
-def test_RequestQueue_get_and_remove_request(request_queue):
-    """
-    Verifies that requests can be retrieved by their ID and subsequently
-    removed, which is crucial for state management and cleanup after a
-    request is finished.
-    """
-    req = request_queue.add_request("to be removed", max_tokens=1)
-    
-    # Test retrieval
-    retrieved_req = request_queue.get_request(req.request_id)
-    assert retrieved_req is not None, "get_request should find an existing request by its ID."
-    assert retrieved_req.request_id == req.request_id
-    
-    # Test removal
-    retrieved_req.status = "COMPLETED" 
-    request_queue.remove_request(req.request_id)
-    
-    assert request_queue.get_request(req.request_id) is None, \
-        "get_request should return None for a removed request ID."
+    expected_available = 95
+    actual_available = kv_block_manager.get_available_blocks()
+    assert actual_available == expected_available, \
+        f"Expected {expected_available} available blocks after allocation, but got {actual_available}"
+    # STUDENT_HINT: If this test fails, check if `allocate` correctly updates
+    # your internal count of free blocks and returns a list of the correct size.
 
 
-# --------------------------------------------------------------------------
-# Unit Tests: KVCacheSimulator
-# --------------------------------------------------------------------------
+def test_SimpleKVBlockManager_out_of_memory():
+    """
+    Verifies that allocate(N) raises a ValueError when not enough blocks are
+    available.
+    """
+    manager = SimpleKVBlockManager(num_total_blocks=10)
+    manager.allocate(8)  # Use up some blocks
 
-def test_KVCacheSimulator_allocates_and_reduces_free_blocks(kv_cache_simulator):
-    """
-    Verifies that allocating blocks correctly reduces the number of available
-    free blocks and returns the requested number of unique block IDs. This is
-    the core function for memory provisioning.
-    """
-    initial_free_blocks = kv_cache_simulator.get_num_free_blocks()
-    num_to_allocate = 5
-    
-    allocated_ids = kv_cache_simulator.allocate_blocks("req-1", num_to_allocate)
-    
-    assert len(allocated_ids) == num_to_allocate, "Should allocate the exact number of requested blocks."
-    assert len(set(allocated_ids)) == num_to_allocate, "Allocated block IDs must be unique."
-    
-    expected_free_blocks = initial_free_blocks - num_to_allocate
-    actual_free_blocks = kv_cache_simulator.get_num_free_blocks()
-    assert actual_free_blocks == expected_free_blocks, \
-        f"Expected {expected_free_blocks} free blocks, but got {actual_free_blocks}"
+    with pytest.raises(ValueError, match="Not enough blocks available"):
+        manager.allocate(3)  # Request more than available
 
-def test_KVCacheSimulator_frees_and_restores_free_blocks(kv_cache_simulator):
+    final_block_count = manager.get_available_blocks()
+    assert final_block_count == 2, \
+        f"Block count should not change after a failed allocation. Expected 2, got {final_block_count}"
+    # STUDENT_HINT: Your `allocate` method must raise a `ValueError` when it
+    # cannot fulfill a request. Make sure you don't allocate partial blocks.
+
+
+def test_SimpleKVBlockManager_freeing(kv_block_manager):
     """
-    Verifies that freeing blocks associated with a request ID returns them to
-    the free pool, making them available for future allocations. This is critical
-    for memory recycling.
+    Verifies that free() correctly returns block IDs to the pool.
     """
-    initial_free_blocks = kv_cache_simulator.get_num_free_blocks()
-    
+    assert kv_block_manager.get_available_blocks() == 100
+
     # Allocate some blocks
-    kv_cache_simulator.allocate_blocks("req-1", 10)
-    assert kv_cache_simulator.get_num_free_blocks() == initial_free_blocks - 10
-    
-    # Free them
-    kv_cache_simulator.free_blocks_for_request("req-1")
-    
-    final_free_blocks = kv_cache_simulator.get_num_free_blocks()
-    assert final_free_blocks == initial_free_blocks, \
-        f"Expected free blocks to be restored to {initial_free_blocks}, got {final_free_blocks}"
+    allocated = kv_block_manager.allocate(10)
+    assert kv_block_manager.get_available_blocks() == 90
 
-def test_KVCacheSimulator_raises_error_on_insufficient_blocks():
+    # Free the blocks
+    kv_block_manager.free(allocated)
+    assert kv_block_manager.get_available_blocks() == 100, \
+        "Freeing blocks should return them to the available pool."
+
+    # Test freeing a subset
+    allocated1 = kv_block_manager.allocate(5)
+    allocated2 = kv_block_manager.allocate(5)
+    assert kv_block_manager.get_available_blocks() == 90
+    kv_block_manager.free(allocated1)
+    assert kv_block_manager.get_available_blocks() == 95, \
+        "Freeing a subset of blocks should work correctly."
+    # STUDENT_HINT: Make sure your `free` method correctly increases the
+    # count of available blocks and adds the freed IDs back to the pool.
+
+
+# -----------------
+# Unit Tests for DummyExecutor
+# -----------------
+
+def test_DummyExecutor_execute_batch_generation(dummy_executor):
     """
-    Verifies that attempting to allocate more blocks than are available raises
-    a ValueError. This prevents overallocation and signals memory pressure
-    to the scheduler.
-    """
-    cache = KVCacheSimulator(total_blocks=5, block_size=4)
-    
-    # This should succeed
-    cache.allocate_blocks("req-1", 3)
-    
-    # This should fail
-    with pytest.raises(ValueError, match="Not enough free KV cache blocks"):
-        cache.allocate_blocks("req-2", 3)
-    
-    assert cache.get_num_free_blocks() == 2, \
-        "The number of free blocks should not change after a failed allocation."
-
-
-# --------------------------------------------------------------------------
-# Unit Tests: MockModelRunner
-# --------------------------------------------------------------------------
-
-def test_MockModelRunner_returns_token_for_each_request(mock_model_runner):
-    """
-    Verifies that the model runner's forward pass returns a dictionary
-    containing a new token ID for every request in the input batch. This
-    ensures the model processes the entire batch as expected.
+    Tests that the executor can generate the next token for a batch of requests.
     """
     requests = [
-        Request("req-1", [10], 10),
-        Request("req-2", [20], 10),
-        Request("req-3", [30], 10),
+        ScheduledRequest(
+            request_id="req1", prompt="hello", generated_tokens=list("he"), max_output_len=20
+        ),
+        ScheduledRequest(
+            request_id="req2", prompt="pytest", generated_tokens=[], max_output_len=20
+        ),
     ]
-    
-    generated_tokens = mock_model_runner.run_forward_pass(requests)
-    
-    assert isinstance(generated_tokens, dict), "Output should be a dictionary."
-    assert len(generated_tokens) == len(requests), \
-        f"Expected {len(requests)} generated tokens, but got {len(generated_tokens)}."
-    
-    for req in requests:
-        assert req.request_id in generated_tokens, \
-            f"Missing generated token for request ID {req.request_id}"
+    results = dummy_executor.execute_batch(requests)
+    results_dict = {r[0]: (r[1], r[2]) for r in results}
 
-def test_MockModelRunner_generates_valid_token_ids(mock_model_runner):
+    assert len(results) == 2, "Executor should return a result for each request"
+    assert results_dict["req1"] == ("l", False), "Should generate the next token for req1"
+    assert results_dict["req2"] == ("p", False), "Should generate the first token for req2"
+    # STUDENT_HINT: Check if your `execute_batch` correctly identifies the next
+    # token based on the prompt and `generated_tokens`, and sets `is_finished` to False.
+
+
+def test_DummyExecutor_execute_batch_finished(dummy_executor):
     """
-    Verifies that the mock model runner only generates token IDs that are
-    within its configured vocabulary size.
+    Tests that the executor correctly identifies finished requests.
     """
-    requests = [Request("req-1", [10], 10)]
-    vocab_size = mock_model_runner.vocab_size
-
-    # Run the model many times to check a range of generated tokens
-    for _ in range(vocab_size * 2):
-        generated_tokens = mock_model_runner.run_forward_pass(requests)
-        token_id = generated_tokens["req-1"]
-        assert 0 <= token_id < vocab_size, \
-            f"Generated token ID {token_id} is outside the valid vocabulary range [0, {vocab_size-1}]"
-
-
-# --------------------------------------------------------------------------
-# Unit Tests: BatchScheduler
-# --------------------------------------------------------------------------
-
-def test_BatchScheduler_schedules_pending_request_if_space(batch_scheduler, kv_cache_simulator):
-    """
-    Verifies that the scheduler can take a pending request, allocate KV cache
-    for it, change its status to 'RUNNING', and add it to a new batch.
-    """
-    req = Request("req-1", prompt_tokens=[1, 2, 3], max_tokens=10) # Needs 1 block (size=4)
-    pending_requests = [req]
-    max_batch_size = 4
-
-    batch = batch_scheduler.schedule(pending_requests, max_batch_size)
-
-    assert len(batch) == 1, "Scheduler should have created a batch with one request."
-    assert batch[0].request_id == "req-1"
-    assert req.status == "RUNNING", "Request status should be updated to 'RUNNING'."
-    assert len(req.kv_cache_block_ids) > 0, "KV cache blocks should have been allocated."
-    assert kv_cache_simulator.get_num_free_blocks() < 100, "Free blocks should have decreased."
-
-def test_BatchScheduler_does_not_schedule_if_no_space(batch_scheduler):
-    """
-    Verifies that if there is not enough KV cache, a pending request is not
-    scheduled, and its status remains 'PENDING'.
-    """
-    cache = KVCacheSimulator(total_blocks=2, block_size=4)
-    scheduler = BatchScheduler(cache)
-    
-    # This prompt requires 3 blocks (len=9), but only 2 are available.
-    req = Request("req-1", prompt_tokens=[1] * 9, max_tokens=10)
-    pending_requests = [req]
-    
-    batch = scheduler.schedule(pending_requests, max_batch_size=4)
-    
-    assert len(batch) == 0, "Batch should be empty as the request doesn't fit."
-    assert req.status == "PENDING", "Request status should remain 'PENDING'."
-    assert cache.get_num_free_blocks() == 2, "No blocks should have been allocated."
-
-def test_BatchScheduler_adds_new_token_and_allocates_more_cache(batch_scheduler, kv_cache_simulator):
-    """
-    Verifies that `add_token_to_request` correctly appends a token and allocates
-    a new KV cache block when the current ones become full.
-    """
-    req = Request("req-1", prompt_tokens=[1, 2, 3], max_tokens=10)
-    req.status = "RUNNING"
-    # Allocate initial block (prompt len 3 fits in 1 block of size 4)
-    req.kv_cache_block_ids = kv_cache_simulator.allocate_blocks("req-1", 1)
-    initial_blocks = len(req.kv_cache_block_ids)
-    
-    # Add a token. Total len = 4. Still fits in 1 block.
-    batch_scheduler.add_token_to_request(req, 100)
-    assert len(req.output_tokens) == 1
-    assert len(req.kv_cache_block_ids) == initial_blocks
-
-    # Add another token. Total len = 5. Now needs a second block.
-    batch_scheduler.add_token_to_request(req, 101)
-    assert len(req.output_tokens) == 2
-    assert len(req.kv_cache_block_ids) == initial_blocks + 1, "Should have allocated a new block."
-
-def test_BatchScheduler_handles_oom_during_token_addition(batch_scheduler):
-    """
-    Verifies that if allocating a new block during token generation fails
-    (due to OOM), the request's status is correctly set to 'ERROR'.
-    """
-    cache = KVCacheSimulator(total_blocks=1, block_size=4)
-    scheduler = BatchScheduler(cache)
-    
-    req = Request("req-1", prompt_tokens=[1, 2, 3], max_tokens=10)
-    req.status = "RUNNING"
-    # Allocate the only block
-    req.kv_cache_block_ids = cache.allocate_blocks("req-1", 1)
-    assert cache.get_num_free_blocks() == 0
-
-    # Add tokens until a new block is needed
-    scheduler.add_token_to_request(req, 100) # total len = 4, fits
-    scheduler.add_token_to_request(req, 101) # total len = 5, needs new block, OOM
-    
-    assert req.status == "ERROR", "Request status should be 'ERROR' after OOM."
-
-
-# --------------------------------------------------------------------------
-# Integration Tests: MiniLLMEngine
-# --------------------------------------------------------------------------
-
-def test_MiniLLMEngine_generate_single_request_e2e(mini_llm_engine):
-    """
-    End-to-end test verifying that a single, valid request is processed
-    correctly, generating the expected number of tokens.
-    """
-    prompt = "Hello"
-    max_tokens = 5
-    
-    output_stream = mini_llm_engine.generate(prompt, max_tokens=max_tokens)
-    full_output = "".join(list(output_stream))
-    
-    assert len(full_output) == max_tokens, \
-        f"Expected to generate {max_tokens} tokens, but got {len(full_output)}."
-
-def test_MiniLLMEngine_handles_multiple_requests(mini_llm_engine):
-    """
-    Tests the engine's ability to handle multiple requests concurrently,
-    verifying batching and correct output for each.
-    """
-    prompts = ["A", "B"]
-    max_tokens = 3
-    results = {}
-
-    def run_request(prompt, index):
-        output = "".join(list(mini_llm_engine.generate(prompt, max_tokens=max_tokens)))
-        results[index] = output
-
-    threads = [
-        threading.Thread(target=run_request, args=(p, i)) for i, p in enumerate(prompts)
+    full_response = "hello world"
+    requests = [
+        # This request is one token away from finishing
+        ScheduledRequest(
+            request_id="req1",
+            prompt="hello",
+            generated_tokens=list(full_response[:-1]),
+            max_output_len=len(full_response),
+        ),
+        # This request has already finished
+        ScheduledRequest(
+            request_id="req2",
+            prompt="hello",
+            generated_tokens=list(full_response),
+            max_output_len=len(full_response),
+        ),
+        # This request hits its max_output_len
+        ScheduledRequest(
+            request_id="req3",
+            prompt="hello",
+            generated_tokens=list("he"),
+            max_output_len=3,
+        ),
     ]
-    
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=5) # Add a timeout to prevent hangs
-    
-    assert len(results) == len(prompts), "Should have results for all requests."
-    for i in range(len(prompts)):
-        assert len(results[i]) == max_tokens, f"Request {i} did not generate the correct number of tokens."
+    results = dummy_executor.execute_batch(requests)
+    results_dict = {r[0]: (r[1], r[2]) for r in results}
 
-def test_MiniLLMEngine_raises_error_on_oom():
-    """
-    Verifies that the engine correctly raises a RuntimeError when a request
-    runs out of memory *during* generation. This simulates a scenario where the
-    cache is full when a new block is needed for an ongoing request.
-    """
-    # Configure an engine with very limited memory: 2 blocks of size 4
-    engine = MiniLLMEngine(total_kv_blocks=2, kv_block_size=4, max_batch_size=1)
-    
-    # Prompt requires exactly 2 blocks ((5+4-1)//4 = 2). This will be schedulable.
-    # But generating the first output token (total len 6) will require a 3rd block, 
-    # which is not available, causing an OOM error.
-    prompt = "12345"
-    assert len(engine.tokenizer.encode(prompt)) == 5
-    
-    with pytest.raises(RuntimeError, match="failed during processing"):
-        # We need to consume the generator to drive the process
-        list(engine.generate(prompt, max_tokens=10))
+    assert results_dict["req1"] == (full_response[-1], True), \
+        "Should generate the final token and mark as finished"
+    assert results_dict["req2"] == ("", True), \
+        "Should return an empty token for an already-completed request and mark as finished"
+    assert results_dict["req3"] == ("l", True), \
+        "Should mark as finished when max_output_len is reached"
+    # STUDENT_HINT: Your `execute_batch` needs to correctly set the `is_finished`
+    # flag when the full response is generated OR when max_output_len is reached.
 
-    # Also check that the cache was cleaned up
-    assert engine.kv_cache_simulator.get_num_free_blocks() == 2, \
-        "KV cache blocks should be freed after a request errors out."
 
-def test_MiniLLMEngine_request_is_cleaned_up_after_completion(mini_llm_engine):
-    """
-    Verifies that after a request is completed, its resources (like KV cache blocks)
-    are properly released.
-    """
-    initial_free_blocks = mini_llm_engine.kv_cache_simulator.get_num_free_blocks()
-    
-    prompt = "Short prompt"
-    # Consume the generator to ensure the request completes
-    list(mini_llm_engine.generate(prompt, max_tokens=2))
-    
-    final_free_blocks = mini_llm_engine.kv_cache_simulator.get_num_free_blocks()
-    
-    assert final_free_blocks == initial_free_blocks, \
-        "All KV cache blocks should be freed after the request is completed."
+# -----------------
+# Unit Tests for BasicScheduler
+# -----------------
 
-    # Verify the request is no longer in the queue by running another. If 
-    # resources weren't freed, this would fail.
-    try:
-        list(mini_llm_engine.generate(prompt, max_tokens=2))
-    except Exception as e:
-        pytest.fail(f"A second, identical request failed, suggesting cleanup did not happen. Error: {e}")
+def test_BasicScheduler_add_and_schedule_new(basic_scheduler, kv_block_manager):
+    """
+    Tests adding a new request and scheduling it, which should allocate
+    blocks for the prompt.
+    """
+    prompt = "test_prompt"
+    prompt_len = len(prompt)
+    basic_scheduler.add_request(request_id="req1", prompt=prompt, max_output_len=20)
+    assert kv_block_manager.get_available_blocks() == 100, \
+        "Adding a request should not allocate blocks yet"
+
+    scheduled_batch = basic_scheduler.schedule()
+
+    assert len(scheduled_batch) == 1, "Scheduler should schedule the waiting request"
+    assert scheduled_batch[0].request_id == "req1", "Scheduled request should have the correct ID"
+
+    expected_blocks = 100 - prompt_len
+    assert kv_block_manager.get_available_blocks() == expected_blocks, \
+        f"Scheduling a new request should allocate {prompt_len} blocks for the prompt"
+    # STUDENT_HINT: Your `schedule` method should move requests from the
+    # waiting queue to the running pool, allocating blocks for the full prompt.
+
+
+def test_BasicScheduler_schedule_running_and_waiting(basic_scheduler, kv_block_manager):
+    """
+    Tests scheduling logic when there are running requests and waiting
+    requests with limited memory.
+    """
+    # Add a request that is now "running" by adding and scheduling it.
+    prompt1 = "a" * 98 # Uses 98 blocks
+    basic_scheduler.add_request(request_id="req1", prompt=prompt1, max_output_len=100)
+    basic_scheduler.schedule() # Moves req1 to running, allocates 98 blocks
+
+    assert kv_block_manager.get_available_blocks() == 2, "Only 2 blocks should be left"
+
+    # Add a new request that needs 5 blocks, but only 2 are free
+    basic_scheduler.add_request(request_id="req2", prompt="abcde", max_output_len=10)
+
+    # Schedule again
+    scheduled_batch = basic_scheduler.schedule()
+
+    assert len(scheduled_batch) == 1, "Only the running request should be scheduled"
+    assert scheduled_batch[0].request_id == "req1", "The running request should be prioritized"
+
+    # Scheduling a running request allocates 1 new block for the next token
+    assert kv_block_manager.get_available_blocks() == 1, \
+        "One block should be allocated for the running request's next token"
+    # STUDENT_HINT: `schedule` must prioritize giving blocks to running requests
+    # before trying to promote new requests from the waiting queue.
+
+
+def test_BasicScheduler_update_request_state_and_free(basic_scheduler, kv_block_manager):
+    """
+    Tests that updating a request's state works and that finishing a request
+    frees its KV blocks.
+    """
+    prompt = "short"
+    basic_scheduler.add_request(request_id="req1", prompt=prompt, max_output_len=10)
+    basic_scheduler.schedule() # Allocates len(prompt) blocks and moves to running
+
+    # Simulate one step
+    basic_scheduler.update_request_state(request_id="req1", new_token="a", is_finished=False)
+    # Access internal state for verification, which is okay for a unit test
+    assert basic_scheduler._running_requests["req1"].generated_tokens == ['a'], "Generated tokens should be updated"
+    assert "req1" in basic_scheduler._running_requests, "Request should still be running"
+
+    # Simulate final step
+    basic_scheduler.update_request_state(request_id="req1", new_token="b", is_finished=True)
+    assert "req1" not in basic_scheduler._running_requests, "Finished request should be removed"
+
+    assert kv_block_manager.get_available_blocks() == 100, \
+        "All blocks should be freed after the only request is finished"
+    # STUDENT_HINT: Your `update_request_state` should append tokens, and if
+    # `is_finished` is true, it must remove the request and free its associated blocks.
+
+
+# -----------------
+# Unit Tests for MiniEngineCore
+# -----------------
+
+def test_MiniEngineCore_process_and_execute(mini_engine_core, basic_scheduler):
+    """
+    Tests adding new requests and executing a single engine step.
+    """
+    # Step 1: Add new requests
+    new_requests = [
+        {"request_id": "req1", "prompt": "hello", "max_output_len": 15},
+        {"request_id": "req2", "prompt": "pytest", "max_output_len": 25},
+    ]
+    mini_engine_core.process_new_requests(new_requests)
+
+    # Verify they are in the scheduler's waiting queue
+    assert len(basic_scheduler._waiting_queue) == 2
+
+    # Step 2: Execute a step
+    outputs = mini_engine_core.execute_step()
+
+    # The step should have scheduled the requests and generated the first token for each
+    assert "req1" in outputs, "Output should contain result for req1"
+    assert outputs["req1"] == "h", "First token for 'hello' response should be 'h'"
+    assert "req2" in outputs, "Output should contain result for req2"
+    assert outputs["req2"] == "p", "First token for 'pytest' response should be 'p'"
+
+    # Verify scheduler state
+    assert len(basic_scheduler._waiting_queue) == 0
+    assert len(basic_scheduler._running_requests) == 2
+
+    # Step 3: Execute another step
+    outputs = mini_engine_core.execute_step()
+    assert outputs["req1"] == "he", "Second token should be appended"
+    assert outputs["req2"] == "py", "Second token should be appended"
+    # STUDENT_HINT: `execute_step` orchestrates the whole process: `schedule`,
+    # `execute_batch`, and `update_request_state`. Ensure these are called in order
+    # and the final generated strings are returned correctly.
+
+
+# -----------------
+# Integration Test for MockLLMEngine
+# -----------------
+
+def test_MockLLMEngine_end_to_end_flow(mock_llm_engine, mock_responses):
+    """
+    Verifies the full end-to-end functionality from adding a request to
+    receiving the complete generated output.
+    """
+    prompt = "hello"
+    request_id = "e2e_req"
+    full_response = mock_responses[prompt]
+
+    # Add a new request
+    mock_llm_engine.add_request(prompt=prompt, request_id=request_id)
+
+    # The engine processes requests in discrete steps
+    for i in range(len(full_response)):
+        # Execute one step of the engine
+        mock_llm_engine.step()
+
+        # Get the current state of outputs
+        outputs = mock_llm_engine.get_outputs()
+
+        # Verify the output is growing correctly
+        expected_text = full_response[:i + 1]
+        assert request_id in outputs, f"Request should have output after step {i+1}"
+        assert outputs[request_id] == expected_text, \
+            f"Output after step {i+1} is incorrect. Expected '{expected_text}', got '{outputs[request_id]}'"
+
+    # After the full response is generated, one more step should finish it
+    mock_llm_engine.step()
+    final_outputs = mock_llm_engine.get_outputs()
+    assert request_id not in final_outputs, \
+        "Completed requests should be removed from the output dictionary."
+
+    # Add another request to ensure the engine is still operational
+    mock_llm_engine.add_request(prompt="pytest", request_id="req2")
+    mock_llm_engine.step()
+    outputs = mock_llm_engine.get_outputs()
+    assert "req2" in outputs
+    assert outputs["req2"] == "p"
+    # STUDENT_HINT: This test checks the entire system. If it fails, one of the
+    # components is not behaving as expected. Use the unit tests to pinpoint
+    # which component is failing. Also check that `get_outputs` only returns
+    # results for currently *active* requests.

@@ -7,8 +7,8 @@ from interfaces import *
 
 # TODO: Implement each abstract class from interfaces.py here.
 # Suggested implementation order:
-#   1. MiniDataProcessor
-#   2. MiniGPTModel
+#   1. MiniGPT
+#   2. TextDataset
 #   3. MiniTrainer
 
 # Example structure:

@@ -1,151 +1,152 @@
-# mini-nanoGPT: End-to-End LLM Pipeline
+# Capstone Project: mini-nanoGPT
 
-Welcome to your capstone project! This project is the culmination of everything you've learned, challenging you to build a complete, working pipeline for a small-scale Large Language Model (LLM).
+By completing this project, you will have built a simplified, end-to-end version of nanoGPT from scratch. You will integrate data preparation, model architecture, and a training loop into a functional language model. This project demystifies the core principles behind modern LLMs by showing you how all the pieces fit together in a minimal, complete system.
 
-**By completing this project, you will have built a complete, end-to-end pipeline for a Generative Pre-trained Transformer (GPT) model.** You will have implemented the entire process from raw text processing and tokenization to model definition, training, and text generation. This project synthesizes all the core concepts of deep learning and natural language processing covered in the course into a single, tangible application.
+- **Project:** mini-nanoGPT
+- **Description:** Students will build a simplified, end-to-end version of nanoGPT, integrating all previously learned components into a functional language model. This project emphasizes how data preparation, model architecture, and training loops come together to create a minimal yet complete system, highlighting the core principles behind modern LLMs.
+- **Estimated time:** 4 hours
 
-**Estimated Time:** 4 hours
+---
 
 ## System Architecture
 
-The project is divided into three main components that work together to process data, train a model, and generate text. The diagram below illustrates the flow of data through the system for both training and inference.
+The project is composed of three main components: a dataset handler (`TextDataset`), the GPT model itself (`MiniGPT`), and a training orchestrator (`MiniTrainer`). The `MiniTrainer` coordinates the flow of data from the dataset to the model and updates the model's weights based on the calculated loss.
 
 ```ascii
-                                     TRAINING
-            +---------------------+
-Raw Text -> | MiniDataProcessor | -> train.bin / val.bin
-            +---------------------+
-                    |
-                    | (File path)
-                    v
-            +---------------------+       +----------------+
-            |    MiniTrainer    | ----> | MiniGPTModel   | (forward pass for loss)
-            +---------------------+       +----------------+
-                    |                             ^
-                    | (Saves model)               | (instantiates)
-                    v                             |
-            checkpoint.pt ------------------------+
-
------------------------------------------------------------------------------------
-
-                                     INFERENCE
-            +---------------------+
-            |   checkpoint.pt   | (Loads trained model)
-            +---------------------+
-                    |
-                    v
-            +----------------+
-Prompt ->   | MiniGPTModel   | -> Generated Text
-            +----------------+
-              (generate call)
++---------------+       get_batch()        +---------------+       forward()        +-----------+
+|               |------------------------->|               |----------------------->|           |
+|  TextDataset  | (xb, yb) training data   |  MiniTrainer  |   (logits, loss)     |  MiniGPT  |
+|               |<-------------------------|               |<-----------------------|           |
++---------------+                          +---------------+    optimizer.step()    +-----------+
+                                                 |                                     ^
+                                                 | (updates model weights)             |
+                                                 +-------------------------------------+
 ```
+
+---
 
 ## Modules to Implement
 
-You will implement three Python classes in `implementation.py`. The tests in `test_capstone.py` will verify that each class meets the required specifications.
+You will implement three Python classes in `implementation.py`.
 
-### 1. `MiniDataProcessor`
+### 1. `TextDataset`
 
-This module is the starting point of our pipeline. It takes raw text and prepares it for the model.
+-   **Responsibility:** This class is responsible for loading a raw text corpus, creating a character-level vocabulary, tokenizing the text, and serving batches of data for training and validation. It handles the crucial first step of turning text into numbers the model can understand.
 
-*   **Responsibility:** Handles character-level tokenization of raw text and serializes the tokenized data into a binary file. This format is efficient for the trainer to read during training.
-*   **Interface Sketch:**
+-   **Interface:**
     ```python
-    class MiniDataProcessor:
-        def __init__(self, vocab_size: int):
-            # Should initialize token encoders/decoders
+    class TextDataset:
+        def __init__(self, raw_text: str, block_size: int, split_ratio: float = 0.9):
+            # Tokenize text, split into train/val
             ...
-        def prepare_data(self, text: str, output_file: str) -> None:
-            # Should tokenize text and write it to the binary output_file
+
+        def get_batch(self, split: str, batch_size: int) -> tuple[torch.Tensor, torch.Tensor]:
+            # Returns (xb, yb) tensors for a given split
             ...
     ```
-*   **Expected Behavior (what the tests check):**
-    *   Given a short string of text, `prepare_data` successfully creates a `.bin` file at the specified path.
-    *   The contents of the `.bin` file must be the correct numerical (integer) representations of the tokens from the input text.
 
-### 2. `MiniGPTModel`
+-   **Expected Behavior:**
+    -   Given a raw text string, the `get_batch('train', batch_size)` method should return two tensors, `xb` (inputs) and `yb` (targets), both of shape `(batch_size, block_size)`.
+    -   The `xb` and `yb` tensors must contain valid token IDs (integers within the vocabulary range).
+    -   Successive calls to `get_batch` should return different, contiguous batches of data, simulating the process of iterating through an epoch.
 
-This is the core of our project—the neural network itself. It's a simplified version of a GPT model, but it contains all the essential components of the transformer architecture.
+### 2. `MiniGPT`
 
-*   **Responsibility:** Defines the GPT architecture, including token and position embeddings, transformer blocks, and the final prediction head. It must implement both a `forward` pass for training and a `generate` method for inference.
-*   **Interface Sketch:**
+-   **Responsibility:** This is the core of our language model. It encapsulates the token and positional embeddings, a stack of Transformer Blocks, and a final linear layer (the language modeling head) to produce predictions over the vocabulary. It must also correctly implement a causal attention mask to ensure it only uses past information to predict the next token.
+
+-   **Interface:**
     ```python
     import torch
     import torch.nn as nn
-    from typing import Optional, Tuple
 
-    class MiniGPTModel(nn.Module):
+    class MiniGPT(nn.Module):
         def __init__(self, vocab_size: int, block_size: int, n_layer: int, n_head: int, n_embd: int):
             super().__init__()
+            # Implement token embeddings, positional embeddings, Transformer Blocks, and the LM head
             ...
-        def forward(self, idx: torch.Tensor, targets: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-            # Process input `idx` and return logits. If `targets` are provided, also compute and return the loss.
-            ...
-        def generate(self, idx: torch.Tensor, max_new_tokens: int) -> torch.Tensor:
-            # Take a conditioning sequence `idx` and generate `max_new_tokens` more.
+
+        def forward(self, idx: torch.Tensor, targets: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor | None]:
+            # Computes logits and, optionally, the cross-entropy loss
             ...
     ```
-*   **Expected Behavior:**
-    *   Calling `forward` with an input tensor `idx` should return a tensor of logits with the correct shape. If `targets` are also provided, it should return a tuple of (logits, loss).
-    *   Calling `generate` with a starting sequence `idx` should produce a new tensor that extends the original sequence by `max_new_tokens`.
+
+-   **Expected Behavior:**
+    -   Given a dummy input tensor `idx` of shape `(batch_size, block_size)`, the `forward` method should return logits of shape `(batch_size, block_size, vocab_size)`.
+    -   If `targets` are provided during the forward pass, the method must also return a scalar loss value.
+    -   The self-attention mechanism within the Transformer Blocks must use a causal mask to prevent any token from attending to future tokens.
 
 ### 3. `MiniTrainer`
 
-This module orchestrates the training process. It connects the data and the model to actually learn from the data.
+-   **Responsibility:** This class orchestrates the entire training process. It holds the model, the dataset, and the optimizer. Its main `train` method runs the training loop: fetching batches, performing forward and backward passes, updating model weights, and periodically evaluating the model's performance.
 
-*   **Responsibility:** Manages the training loop. This includes loading data in batches, feeding batches to the model, calculating loss, performing backpropagation with an optimizer, and saving the trained model weights (checkpointing).
-*   **Interface Sketch:**
+-   **Interface:**
     ```python
     class MiniTrainer:
-        def __init__(self, model: MiniGPTModel, train_data_file: str, val_data_file: str, batch_size: int, learning_rate: float, max_iters: int):
-            # Initialize optimizer, data loaders, etc.
+        def __init__(self, model: MiniGPT, dataset: TextDataset, learning_rate: float = 1e-3, device: str = 'cpu'):
+            # Initialize optimizer, and store model and dataset references
             ...
-        def train(self) -> None:
-            # Run the main training loop for `max_iters`.
+
+        def train(self, max_iters: int, eval_interval: int = 100):
+            # The main training loop: get batch, forward, backward, step, and evaluate
             ...
     ```
-*   **Expected Behavior:**
-    *   Running the `train` method should cause the model's validation loss to decrease over a small number of iterations, indicating that learning is occurring.
-    *   After the `train` method completes, a model checkpoint file (e.g., `latest_checkpoint.pt`) should be saved to disk.
 
-## How It All Fits Together: The Integration Test
+-   **Expected Behavior:**
+    -   After `train` is called for a few iterations, the model's parameters should be updated (i.e., they are no longer identical to their initial state).
+    -   The reported training loss should generally decrease over successive evaluation intervals, indicating that the model is learning.
+    -   The `train` method must complete without errors when provided with a valid model and dataset.
 
-The final test (`test_end_to_end`) ensures all your modules work together correctly. It simulates the entire pipeline:
+---
 
-1.  **Setup:** A small, predictable text corpus is defined: `"the quick brown fox jumps over the lazy dog. the lazy dog sleeps."`
-2.  **Data Processing:** Your `MiniDataProcessor` is used to tokenize this text and save it to `tiny_data.bin`.
-3.  **Model & Trainer Init:** Your `MiniGPTModel` and `MiniTrainer` are instantiated with a small configuration.
-4.  **Training:** The `MiniTrainer.train()` method is called to train the model on this tiny dataset for 100 iterations.
-5.  **Inference:** The saved checkpoint is loaded back into the model. The model is then prompted with the tokens for `"the quick"`.
-6.  **Validation:** The test checks if the text generated by the model contains plausible words from the training data (e.g., "brown", "fox", "dog"). This proves that the model has actually learned patterns from the data.
+## Connecting the Modules
+
+The components are designed to work together sequentially:
+
+1.  An instance of `TextDataset` is created from a source text.
+2.  An instance of `MiniGPT` is created with the desired hyperparameters (including the `vocab_size` from the dataset).
+3.  An instance of `MiniTrainer` is created, taking the `model` and `dataset` objects as arguments.
+4.  Calling `trainer.train()` kicks off the process. The trainer repeatedly calls `dataset.get_batch()` to get input tensors (`xb`, `yb`) and passes them to `model.forward(xb, yb)` to get logits and loss. It then uses the loss to perform backpropagation and updates the model's weights.
+
+---
 
 ## Success Criteria
 
-Your project is considered complete and successful when all automated tests pass. You can run the tests with `pytest`. A passing test suite demonstrates that each module fulfills its contract and that they integrate correctly to form a functional LLM pipeline.
+Your implementation is successful when all the automated tests pass. The tests are designed to verify the "Expected Behavior" for each module and to run a final integration test.
+
+The integration test will:
+1.  Initialize your `TextDataset`, `MiniGPT`, and `MiniTrainer` with a small, predictable corpus.
+2.  Run the training process for 100 iterations.
+3.  **Verify that the training loss decreases by at least 10%.**
+4.  **Verify that the model can generate a short, non-random sequence of characters, demonstrating that it has learned basic patterns from the data.**
+
+---
 
 ## Suggested Implementation Order
 
-We strongly recommend implementing the modules in the order of their dependencies to allow for incremental testing and development.
+We recommend implementing the components in the following order to manage dependencies effectively:
 
-1.  **`MiniDataProcessor`:** Start here. It's self-contained and is the first step in the pipeline. Make sure you can correctly tokenize text and write it to a binary file.
-2.  **`MiniGPTModel`:** This is the most complex piece. Focus on building the transformer architecture. Don't worry about training yet; just ensure the `forward` and `generate` methods produce tensors of the expected shape.
-3.  **`MiniTrainer`:** Finally, implement the trainer. This will bring your data processor and model together. Your main goal here is to create a training loop that successfully reduces the model's loss.
+1.  **`TextDataset`**: Start with the data pipeline. It has no dependencies and is fundamental to everything else. You can test it in isolation to ensure your data loading and batching are correct.
+2.  **`MiniGPT`**: Implement the model architecture next. This is the most complex piece. Focus on getting the dimensions right and correctly implementing the causal self-attention mask.
+3.  **`MiniTrainer`**: Finally, implement the trainer. This component ties the dataset and model together and brings your project to life.
+
+---
 
 ## Getting Started
 
-All your work should be done in the `implementation.py` file.
+All your code should be written in the `implementation.py` file. The tests in `test_capstone.py` will import your classes from that file to check them.
 
-To begin, navigate to the project directory and run the test suite. You will see all tests failing. Your goal is to implement the classes until all tests pass.
+To begin working and run the tests, follow these steps:
 
-```bash
-# Navigate to the capstone project directory
-cd capstone/
+1.  Navigate to the project directory.
+    ```bash
+    cd capstone/
+    ```
 
-# Implement the MiniDataProcessor, MiniGPTModel, and MiniTrainer classes
-# in the provided `implementation.py` file.
+2.  Open `implementation.py` in your editor and start building the classes described above.
 
-# Run the tests to check your work. Use -v for verbose output.
-pytest test_capstone.py -v
-```
+3.  To run the tests and check your progress, execute `pytest` from the `capstone/` directory. Use the `-v` flag for verbose output.
+    ```bash
+    pytest test_capstone.py -v
+    ```
 
-Good luck
+The test suite will run, and you will see which tests pass and which fail. Use the test failures to guide your implementation until all tests pass. Good luck
