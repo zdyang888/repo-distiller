@@ -5,137 +5,140 @@
   "output_dir": "output/nanoGPT_course",
   "findings": {
     "title": "nanoGPT: Minimalist GPT Training Framework",
-    "one_liner": "A simple and fast repository for training and finetuning medium-sized GPT models from scratch.",
-    "mental_model": "nanoGPT provides a clean, single-file implementation of the GPT Transformer architecture (`model.py`), which can be configured via `GPTConfig`. The `train.py` script orchestrates the entire training process, handling data loading, optimization, and distributed training. Once trained, `sample.py` allows users to generate text from the model.",
+    "one_liner": "A simple, fast, and hackable repository for training and finetuning GPT-style large language models from scratch.",
+    "mental_model": "nanoGPT implements the core GPT-2 transformer architecture in `model.py`, emphasizing clarity and performance. The `train.py` script orchestrates the entire training pipeline, including data loading from pre-processed binary files, model instantiation, optimization, and distributed training. Users define model and training parameters via configuration files or command-line arguments, and trained models can then be used for text generation via `sample.py`.",
     "domain": "llm_framework",
     "concepts": [
       {
-        "name": "GPT Architecture",
-        "description": "The neural network structure of the GPT model, composed of modular building blocks like Layer Normalization, Causal Self-Attention, and Multi-Layer Perceptrons (MLP), stacked into Transformer Blocks. It handles token and position embeddings for sequence processing.",
+        "name": "GPT Model Architecture",
+        "description": "The neural network definition of the GPT model, including its core components like Layer Normalization, Causal Self-Attention, and MLP blocks, arranged into a stack of Transformer Blocks. It also includes the `GPTConfig` dataclass for parameterizing the model.",
         "complexity": "intermediate",
         "key_files": [
           "model.py"
         ]
       },
       {
-        "name": "GPT Configuration",
-        "description": "A dataclass that defines all the hyperparameters necessary to construct a specific GPT model instance, such as the number of layers, heads, embedding dimensions, context size, and dropout rates.",
-        "complexity": "basic",
-        "key_files": [
-          "model.py"
-        ]
-      },
-      {
-        "name": "Training Orchestration",
-        "description": "The comprehensive workflow for training a GPT model, encompassing data loading, model initialization, optimization (AdamW), learning rate scheduling, evaluation, checkpoint saving, and support for distributed data parallel (DDP) training.",
+        "name": "Training Loop & Orchestration",
+        "description": "The main script responsible for managing the end-to-end training process. This includes loading data, initializing or resuming model training, setting up the optimizer and learning rate schedule, performing forward and backward passes, logging, evaluation, and handling distributed data parallel (DDP) training.",
         "complexity": "intermediate",
         "key_files": [
           "train.py"
         ]
       },
       {
-        "name": "Data Preparation & Loading",
-        "description": "The process of converting raw text into numerical token IDs and storing them in an efficient binary format (e.g., `train.bin`, `val.bin`). During training, these token sequences are loaded into batches from memory-mapped files.",
+        "name": "Data Preparation",
+        "description": "The process of converting raw text datasets (e.g., Shakespeare, OpenWebText) into a tokenized, numerical, and efficiently loadable binary format (`.bin` files) for training. This step typically involves tokenization (e.g., using `tiktoken` for BPE tokens) and serialization.",
         "complexity": "basic",
         "key_files": [
-          "train.py",
-          "data/shakespeare_char/prepare.py"
+          "data/shakespeare_char/prepare.py",
+          "data/openwebtext/prepare.py"
         ]
       },
       {
-        "name": "Text Generation/Sampling",
-        "description": "The inference process where a trained GPT model generates new text. It involves feeding an initial prompt to the model and iteratively predicting the next token, using strategies like temperature sampling and top-k filtering.",
+        "name": "Configuration Management",
+        "description": "The mechanism for defining and overriding hyperparameters and training settings. This involves default values defined in `train.py`, Python configuration files (`config/*.py`), and command-line arguments parsed by `configurator.py`.",
         "complexity": "basic",
         "key_files": [
-          "sample.py",
-          "model.py"
+          "train.py",
+          "configurator.py",
+          "config/train_shakespeare_char.py"
+        ]
+      },
+      {
+        "name": "Text Generation (Sampling)",
+        "description": "The process of loading a trained GPT model checkpoint and using it to generate new text sequences given a prompt. This involves autoregressive sampling, where the model predicts the next token based on the preceding sequence.",
+        "complexity": "basic",
+        "key_files": [
+          "sample.py"
         ]
       }
     ],
     "dependency_order": [
-      "GPT Configuration",
-      "GPT Architecture",
-      "Data Preparation & Loading",
-      "Training Orchestration",
-      "Text Generation/Sampling"
+      "Data Preparation",
+      "Configuration Management",
+      "GPT Model Architecture",
+      "Training Loop & Orchestration",
+      "Text Generation (Sampling)"
     ],
     "key_files": [
       "README.md",
       "model.py",
       "train.py",
       "sample.py",
+      "data/shakespeare_char/prepare.py",
       "configurator.py",
-      "data/shakespeare_char/prepare.py"
+      "config/train_shakespeare_char.py"
     ],
     "skip_files": [
-      "assets/",
       "bench.py",
       "scaling_laws.ipynb",
-      "transformer_sizing.ipynb"
+      "transformer_sizing.ipynb",
+      ".gitattributes",
+      ".gitignore",
+      "LICENSE",
+      "assets/"
     ]
   },
   "curriculum": {
-    "title": "Understanding nanoGPT",
-    "mental_model": "nanoGPT provides a streamlined framework for understanding and training GPT models. It encapsulates the core GPT Transformer architecture, handles data preparation and loading, orchestrates the entire training process, and enables text generation from a trained model in a clean, single-file implementation approach.",
+    "title": "Understanding nanoGPT: Minimalist GPT Training Framework",
+    "mental_model": "nanoGPT implements a clear and efficient version of the GPT-2 transformer architecture, focusing on making large language model training accessible. Students will learn to process text data, build the core GPT model, orchestrate its training loop, and finally generate text from a trained model.",
     "concepts": [
       {
-        "name": "GPT Configuration",
-        "description": "A dataclass that defines all hyperparameters necessary to construct a specific GPT model instance, such as the number of layers, heads, embedding dimensions, context size, and dropout rates.",
+        "name": "Data Preparation",
+        "description": "The process of converting raw text into tokenized, numerical, and efficiently loadable binary data for model training.",
         "complexity": "basic"
       },
       {
-        "name": "GPT Architecture",
-        "description": "The neural network structure of the GPT model, composed of modular building blocks like Layer Normalization, Causal Self-Attention, and Multi-Layer Perceptrons (MLP), stacked into Transformer Blocks.",
+        "name": "GPT Model Architecture",
+        "description": "The neural network structure of the GPT model, composed of Layer Normalization, Causal Self-Attention, and MLP blocks within stacked Transformer Blocks.",
         "complexity": "intermediate"
       },
       {
-        "name": "Data Preparation & Loading",
-        "description": "The process of converting raw text into numerical token IDs, storing them in an efficient binary format, and loading these token sequences into batches for training.",
-        "complexity": "basic"
-      },
-      {
-        "name": "Training Orchestration",
-        "description": "The comprehensive workflow for training a GPT model, encompassing model initialization, optimization (AdamW), learning rate scheduling, evaluation, checkpoint saving, and support for distributed training.",
+        "name": "Training Loop & Orchestration",
+        "description": "The main process that manages model initialization, data loading, forward and backward passes, optimization, and logging to train the GPT model.",
         "complexity": "intermediate"
       },
       {
-        "name": "Text Generation/Sampling",
-        "description": "The inference process where a trained GPT model generates new text by feeding an initial prompt and iteratively predicting the next token using strategies like temperature sampling and top-k filtering.",
+        "name": "Text Generation (Sampling)",
+        "description": "The technique of using a trained GPT model to autoregressively predict and generate new text sequences given an initial prompt.",
         "complexity": "basic"
       }
     ],
     "notebooks": [
       {
         "id": "01",
-        "title": "Configuring Your GPT Model",
-        "concept": "GPT Configuration",
-        "description": "Students will define the essential hyperparameters for a GPT model using a dataclass, understanding how these parameters influence the model's size and capabilities.",
+        "title": "Preparing Text Data for LLMs",
+        "concept": "Data Preparation",
+        "description": "Students will learn how to tokenize raw text and convert it into a binary format suitable for efficient loading by an LLM, mimicking the `nanoGPT` data preparation pipeline.",
+        "prerequisites": [],
+        "key_source_files": [
+          "data/shakespeare_char/prepare.py",
+          "data/openwebtext/prepare.py"
+        ],
+        "key_symbols": [
+          "tiktoken.get_encoding",
+          "enc.encode",
+          "numpy.memmap"
+        ],
+        "learning_objectives": [
+          "By the end, students will be able to tokenize raw text using BPE.",
+          "Students will understand how text is represented numerically for neural networks.",
+          "Students will be able to save tokenized data into an efficient binary format."
+        ],
+        "exercise_description": "Given a raw text file, students will implement a Python script to tokenize its content, encode it into integers, and save it as a binary file (e.g., `.bin`) using `numpy.memmap`.",
+        "visualization_idea": "Animate the process of converting a sentence into BPE tokens, then to integer IDs, and finally visualizing how these IDs are stored sequentially in a binary file."
+      },
+      {
+        "id": "02",
+        "title": "Deconstructing the GPT Model Architecture",
+        "concept": "GPT Model Architecture",
+        "description": "Students will build a simplified version of the core components of the GPT model, including attention, MLP, and the overall block structure, understanding how they fit together.",
         "prerequisites": [],
         "key_source_files": [
           "model.py"
         ],
         "key_symbols": [
-          "GPTConfig"
-        ],
-        "learning_objectives": [
-          "By the end, students will be able to define and instantiate a GPTConfig object.",
-          "Students will understand how hyperparameters like n_layer, n_head, and n_embd relate to model complexity and resource usage."
-        ],
-        "exercise_description": "Students will implement a simple `ModelConfig` dataclass from scratch to define model dimensions (num_layers, num_heads, embedding_dim, block_size).",
-        "visualization_idea": "A diagram showing how each configuration parameter maps to a conceptual part of the GPT model (e.g., n_layer = number of stacked blocks)."
-      },
-      {
-        "id": "02",
-        "title": "Building the GPT Transformer Block",
-        "concept": "GPT Architecture",
-        "description": "Students will construct the core components of the GPT model, including Layer Normalization, Causal Self-Attention, and the MLP, assembling them into a Transformer Block and finally the full GPT model.",
-        "prerequisites": [
-          "GPT Configuration"
-        ],
-        "key_source_files": [
-          "model.py"
-        ],
-        "key_symbols": [
+          "GPTConfig",
           "LayerNorm",
           "CausalSelfAttention",
           "MLP",
@@ -143,145 +146,106 @@
           "GPT"
         ],
         "learning_objectives": [
-          "By the end, students will be able to implement the Causal Self-Attention mechanism.",
-          "Students will understand how Transformer Blocks are composed and stacked to form the GPT architecture.",
-          "Students will connect GPTConfig parameters to the instantiated architecture."
+          "By the end, students will be able to implement a Causal Self-Attention mechanism.",
+          "Students will understand the role of Layer Normalization and MLP in a Transformer block.",
+          "Students will be able to assemble these components into a full Transformer Block and a minimal GPT model."
         ],
-        "exercise_description": "Students will implement a `MiniAttention` layer and an `EncoderBlock` class, then integrate them into a basic `MiniGPT` model using the `ModelConfig` from the previous exercise.",
-        "visualization_idea": "An animated flow illustrating data passing through LayerNorm, Causal Self-Attention, and MLP within a single Transformer block."
+        "exercise_description": "Students will implement the `CausalSelfAttention` and `Block` classes from scratch, given the `GPTConfig` parameters and PyTorch's `nn.Module` interface.",
+        "visualization_idea": "Draw an interactive diagram of a Transformer Block, highlighting the data flow from input embeddings through Layer Norm, Causal Self-Attention, another Layer Norm, and the MLP, showing how residuals are added."
       },
       {
         "id": "03",
-        "title": "Preparing and Loading Text Data",
-        "concept": "Data Preparation & Loading",
-        "description": "Students will learn how raw text is tokenized, converted to numerical IDs, saved in an efficient binary format, and then loaded in batches for training, focusing on `get_batch`.",
-        "prerequisites": [],
+        "title": "Orchestrating the LLM Training Loop",
+        "concept": "Training Loop & Orchestration",
+        "description": "Students will implement a basic training loop for a language model, covering data loading, forward and backward passes, optimizer steps, and basic logging.",
+        "prerequisites": [
+          "01",
+          "02"
+        ],
         "key_source_files": [
-          "data/shakespeare_char/prepare.py",
           "train.py"
         ],
         "key_symbols": [
-          "get_batch"
+          "get_batch",
+          "GPT.configure_optimizers"
         ],
         "learning_objectives": [
-          "By the end, students will be able to implement basic text tokenization and numericalization.",
-          "Students will understand how to load and prepare batches of data efficiently from binary files for model training."
+          "By the end, students will be able to load batches of data for training.",
+          "Students will understand the steps involved in one training iteration (forward, backward, optimize).",
+          "Students will be able to set up a basic optimizer and learning rate scheduler."
         ],
-        "exercise_description": "Students will implement a `SimpleTextDataset` class that tokenizes a given text and provides a `get_batch` method to yield input-target pairs.",
-        "visualization_idea": "An animation showing raw text transforming into token IDs, then into `x` and `y` tensors for a batch, highlighting the `block_size` concept."
+        "exercise_description": "Students will implement a `Trainer` class that orchestrates the training loop for a small `GPT` model, including batch loading, calculating loss, performing backpropagation, and updating model parameters.",
+        "visualization_idea": "Animate a single training step: data batch input -> model forward pass -> loss calculation -> backpropagation (gradient flow) -> optimizer step (parameter update)."
       },
       {
         "id": "04",
-        "title": "Orchestrating the GPT Training Loop",
-        "concept": "Training Orchestration",
-        "description": "Students will implement the full training loop, including model initialization, optimizer configuration, learning rate scheduling, forward/backward passes, and evaluation, connecting the model and data components.",
+        "title": "Generating Text with a Trained GPT",
+        "concept": "Text Generation (Sampling)",
+        "description": "Students will learn how to load a trained GPT model and use it to autoregressively generate new text sequences given a starting prompt.",
         "prerequisites": [
-          "GPT Configuration",
-          "GPT Architecture",
-          "Data Preparation & Loading"
+          "02"
         ],
         "key_source_files": [
-          "train.py",
-          "model.py"
-        ],
-        "key_symbols": [
-          "configure_optimizers",
-          "estimate_loss",
-          "model.train",
-          "model.eval"
-        ],
-        "learning_objectives": [
-          "By the end, students will be able to implement a complete training loop for a language model.",
-          "Students will understand the role of optimizers, learning rate schedulers, and evaluation metrics in model training.",
-          "Students will learn how to save and load model checkpoints."
-        ],
-        "exercise_description": "Students will implement a `MiniTrainer` class that takes a model and data loader, then orchestrates the training, evaluation, and checkpointing process.",
-        "visualization_idea": "A flowchart depicting the training loop: data batch -> forward pass -> loss -> backward pass -> optimizer step -> LR scheduler step -> evaluation -> repeat."
-      },
-      {
-        "id": "05",
-        "title": "Generating Text with a GPT Model",
-        "concept": "Text Generation/Sampling",
-        "description": "Students will learn how a trained GPT model generates new text, understanding the iterative prediction process and common sampling strategies like temperature and top-k filtering.",
-        "prerequisites": [
-          "GPT Architecture",
-          "Training Orchestration"
-        ],
-        "key_source_files": [
-          "sample.py",
-          "model.py"
+          "sample.py"
         ],
         "key_symbols": [
           "GPT.generate"
         ],
         "learning_objectives": [
-          "By the end, students will be able to use a trained GPT model to generate coherent text.",
-          "Students will understand the mechanisms of autoregressive text generation and token sampling techniques.",
-          "Students will be able to implement `temperature` and `top_k` sampling."
+          "By the end, students will be able to load a pre-trained model checkpoint.",
+          "Students will understand the autoregressive sampling process for text generation.",
+          "Students will be able to generate text from a given prompt using a GPT model."
         ],
-        "exercise_description": "Students will extend their `MiniGPT` model with a `generate` method that takes a prompt and generates new tokens autoregressively, incorporating temperature-based sampling.",
-        "visualization_idea": "An animated sequence showing the model predicting the next token, appending it to the input, and repeating, with a sidebar explaining sampling probabilities."
+        "exercise_description": "Given a trained `MiniGPTModel` and a prompt string, students will implement the `generate` method that uses the model to predict the next token repeatedly until a specified length or end-of-sequence token is reached.",
+        "visualization_idea": "Illustrate the step-by-step token generation: prompt + model -> next token predicted -> next token appended to prompt -> repeat."
       }
     ],
     "capstone": {
-      "title": "mini-nanoGPT",
-      "description": "Students will integrate all learned concepts to build a simplified end-to-end version of nanoGPT. This includes defining a model configuration, constructing the GPT architecture, preparing a small dataset, training the model on that data, and finally generating new text with their trained mini-GPT. This project reinforces the entire lifecycle of a language model.",
-      "estimated_hours": 8,
+      "title": "mini-nanoGPT: End-to-End LLM Pipeline",
+      "description": "Students will build a simplified, end-to-end version of `nanoGPT`, capable of processing a small dataset, defining a minimalist GPT model, training it, and generating text. This project synthesizes all concepts learned throughout the course.",
+      "estimated_hours": 4,
       "modules": [
         {
-          "name": "MiniGPTConfig",
-          "description": "A dataclass holding all essential hyperparameters for the MiniGPT model.",
+          "name": "MiniDataProcessor",
+          "description": "Handles tokenization of raw text and conversion to a binary format suitable for the mini-GPT model.",
           "depends_on": [],
-          "interface_sketch": "from dataclasses import dataclass\n\n@dataclass\nclass MiniGPTConfig:\n    block_size: int = 256\n    vocab_size: int = 50257\n    n_layer: int = 6\n    n_head: int = 6\n    n_embd: int = 384\n    dropout: float = 0.1",
+          "interface_sketch": "class MiniDataProcessor:\n    def __init__(self, vocab_size: int):\n        ...\n    def prepare_data(self, text: str, output_file: str) -> None:\n        ...",
           "test_behaviors": [
-            "Instantiating with defaults should create an object with correct default values.",
-            "Instantiating with custom values should correctly assign them."
+            "Given a short text, `prepare_data` should create a `.bin` file.",
+            "The `.bin` file should contain numerical representations of tokens."
           ]
         },
         {
           "name": "MiniGPTModel",
-          "description": "A simplified GPT model incorporating the transformer architecture, capable of forward passes and text generation.",
+          "description": "A simplified GPT model, with fewer layers and parameters than a full GPT-2, but retaining the core transformer architecture.",
           "depends_on": [
-            "MiniGPTConfig"
+            "MiniDataProcessor"
           ],
-          "interface_sketch": "import torch.nn as nn\n\nclass MiniGPTModel(nn.Module):\n    def __init__(self, config: MiniGPTConfig):\n        super().__init__()\n        self.config = config\n        # ... layers defined here\n\n    def forward(self, idx: torch.Tensor, targets: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor]:\n        # Computes logits and optionally loss\n        ...\n\n    def generate(self, idx: torch.Tensor, max_new_tokens: int, temperature: float = 1.0, top_k: int = None) -> torch.Tensor:\n        # Generates new tokens autoregressively\n        ...",
+          "interface_sketch": "class MiniGPTModel(nn.Module):\n    def __init__(self, vocab_size: int, block_size: int, n_layer: int, n_head: int, n_embd: int):\n        super().__init__()\n        ...\n    def forward(self, idx: torch.Tensor, targets: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:\n        ...\n    def generate(self, idx: torch.Tensor, max_new_tokens: int) -> torch.Tensor:\n        ...",
           "test_behaviors": [
-            "Calling forward with (batch_size, block_size) input should return (batch_size, block_size, vocab_size) logits.",
-            "Calling generate with a prompt and max_new_tokens should produce an output tensor of correct length (prompt + max_new_tokens).",
-            "get_num_parameters() method should return an integer count of trainable parameters."
-          ]
-        },
-        {
-          "name": "MiniTextDataLoader",
-          "description": "Handles tokenization, data loading, and batching from a local text file.",
-          "depends_on": [],
-          "interface_sketch": "import torch\n\nclass MiniTextDataLoader:\n    def __init__(self, data_path: str, block_size: int, batch_size: int):\n        # ... tokenization and data preparation\n\n    def get_batch(self, split: str = 'train') -> tuple[torch.Tensor, torch.Tensor]:\n        # Returns a batch of (inputs, targets)\n        ...\n\n    def get_vocab_size(self) -> int:\n        # Returns the size of the vocabulary\n        ...",
-          "test_behaviors": [
-            "Calling `get_batch` should return two tensors of shape (batch_size, block_size).",
-            "The returned tensors should contain valid token IDs within the vocabulary range.",
-            "Calling `get_vocab_size` should return the correct number of unique tokens in the processed text."
+            "Calling `forward` with an input `idx` should return logits and potentially a loss.",
+            "Calling `generate` with a seed `idx` should produce a sequence of `max_new_tokens`."
           ]
         },
         {
           "name": "MiniTrainer",
-          "description": "Manages the training and evaluation loop, including optimizer setup and learning rate scheduling.",
+          "description": "Manages the training loop for the `MiniGPTModel`, including batching, optimization, and checkpointing.",
           "depends_on": [
-            "MiniGPTModel",
-            "MiniTextDataLoader"
+            "MiniDataProcessor",
+            "MiniGPTModel"
           ],
-          "interface_sketch": "import torch\n\nclass MiniTrainer:\n    def __init__(self, model: MiniGPTModel, data_loader: MiniTextDataLoader, config: dict):\n        # ... optimizer and scheduler setup\n\n    def train(self, num_iterations: int):\n        # Executes the full training loop\n        ...\n\n    def evaluate(self, num_batches: int = 10) -> float:\n        # Computes average loss on evaluation data\n        ...",
+          "interface_sketch": "class MiniTrainer:\n    def __init__(self, model: MiniGPTModel, train_data_file: str, val_data_file: str, batch_size: int, learning_rate: float, max_iters: int):\n        ...\n    def train(self) -> None:\n        ...",
           "test_behaviors": [
-            "Calling `train` should reduce the loss over iterations.",
-            "Calling `evaluate` should return a float representing the average validation loss.",
-            "The model's weights should change after calling `train`."
+            "`train` should decrease the validation loss over a few iterations.",
+            "After training, a model checkpoint should be saved."
           ]
         }
       ],
       "integration_test": {
-        "description": "Train a MiniGPTModel on a small subset of text data and verify it can generate coherent text that resembles the training data's style.",
-        "setup_code": "import os\n\n# Create a dummy dataset file\ndummy_text = \"hello world hello world this is a test example. example test. world hello. new line.\\nhello world\"\nwith open(\"dummy_data.txt\", \"w\") as f:\n    f.write(dummy_text)\n\n# Define simplified configurations\nconfig = {\n    'block_size': 8,\n    'batch_size': 4,\n    'n_layer': 2,\n    'n_head': 2,\n    'n_embd': 32,\n    'max_iters': 20,\n    'learning_rate': 1e-3,\n    'eval_iters': 2\n}",
-        "success_metric": "The generated text should contain tokens from the training vocabulary and exhibit some basic coherence, even if short. The training loss should decrease significantly over iterations.",
-        "expected_output_check": "Print the training loss trajectory. After training, prompt the model with a starting phrase (e.g., 'hello') and print 20 generated tokens. Verify the generated output doesn't contain unknown tokens and includes words from the original `dummy_text`."
+        "description": "Train a `MiniGPTModel` on a small, synthetic dataset (e.g., 'the quick brown fox jumps over the lazy dog') and then use the trained model to complete a prompt like 'the quick'.",
+        "setup_code": "text_data = \"the quick brown fox jumps over the lazy dog. the lazy dog sleeps.\"\nprocessor = MiniDataProcessor(vocab_size=65)\nprocessor.prepare_data(text_data, \"tiny_data.bin\")\nmodel = MiniGPTModel(vocab_size=65, block_size=8, n_layer=1, n_head=1, n_embd=16)\ntrainer = MiniTrainer(model, \"tiny_data.bin\", \"tiny_data.bin\", batch_size=4, learning_rate=1e-3, max_iters=100)",
+        "success_metric": "The generated text, when prompted with 'the quick', should contain words from the training data or plausible extensions (e.g., 'brown fox'). The generated sequence length should match the `max_new_tokens` parameter.",
+        "expected_output_check": "model.load_state_dict(torch.load('latest_checkpoint.pt'))\nstart_idx = torch.tensor(processor.encode('the quick'), dtype=torch.long).unsqueeze(0)\ngenerated_tokens = model.generate(start_idx, max_new_tokens=5)\ngenerated_text = processor.decode(generated_tokens[0].tolist())\nassert 'brown' in generated_text or 'fox' in generated_text or 'dog' in generated_text"
       }
     }
   },
@@ -291,30 +255,28 @@
       "01",
       "02",
       "03",
-      "04",
-      "05"
+      "04"
     ],
     "exercises_complete": [
       "01",
       "02",
       "03",
-      "04",
-      "05"
+      "04"
     ],
     "capstone_complete": true,
-    "last_error": "Reference implementation generation returned empty response",
+    "last_error": null,
     "capstone_validated": false,
     "validation_attempts": 3
   },
   "cost": {
-    "explore_input_tokens": 27378,
-    "explore_output_tokens": 899,
-    "curriculum_input_tokens": 1444,
-    "curriculum_output_tokens": 3187,
-    "notebooks_input_tokens": 28186,
-    "notebooks_output_tokens": 37014,
-    "capstone_input_tokens": 49097,
-    "capstone_output_tokens": 28192,
+    "explore_input_tokens": 17712,
+    "explore_output_tokens": 945,
+    "curriculum_input_tokens": 1555,
+    "curriculum_output_tokens": 2610,
+    "notebooks_input_tokens": 26331,
+    "notebooks_output_tokens": 33865,
+    "capstone_input_tokens": 46384,
+    "capstone_output_tokens": 28496,
     "total_estimated_usd": 0.0
   },
   "config_snapshot": {

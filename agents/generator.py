@@ -372,11 +372,64 @@ def _hollow_out_exercise(text: str) -> str:
     return pattern.sub(r"\1    # your code here\n    pass\2", text)
 
 
+def _strip_func_header(impl: str) -> str:
+    """Strip the leading ``def`` line and docstring from a function implementation.
+
+    The LLM returns full function definitions, but the exercise template already
+    has the signature and docstring. We only need the body.
+
+    Args:
+        impl: Full function implementation text from the LLM.
+
+    Returns:
+        Function body only, preserving indentation.
+    """
+    lines = impl.split("\n")
+    i = 0
+
+    # Skip leading blank lines
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+
+    # Skip def line
+    if i < len(lines) and lines[i].strip().startswith("def "):
+        # Handle multi-line signatures (def foo(\n    arg1,\n    arg2\n):)
+        while i < len(lines) and "):" not in lines[i]:
+            i += 1
+        i += 1  # skip the line with ):
+    else:
+        return impl  # No def line found, return as-is
+
+    # Skip blank lines after def
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+
+    # Skip docstring if present
+    if i < len(lines):
+        stripped = lines[i].strip()
+        for quote in ('"""', "'''"):
+            if stripped.startswith(quote):
+                if stripped.count(quote) >= 2 and len(stripped) > 3:
+                    # Single-line docstring like """some text"""
+                    i += 1
+                else:
+                    # Multi-line docstring — find closing quotes
+                    i += 1
+                    while i < len(lines) and quote not in lines[i]:
+                        i += 1
+                    if i < len(lines):
+                        i += 1  # skip closing quote line
+                break
+
+    return "\n".join(lines[i:])
+
+
 def _apply_solutions(exercise_text: str, solution_response: str) -> str:
     """Apply solution implementations to an exercise template.
 
-    Parses ``FUNCTION: name / ===CODE=== / def ...`` blocks from solution_response
-    and replaces the corresponding START/END CODE stubs in exercise_text.
+    Parses ``FUNCTION: name / ===CODE=== / def ...`` blocks from solution_response,
+    strips the function signature/docstring (already in the template), and replaces
+    the corresponding START/END CODE stubs in exercise_text with just the body.
 
     Args:
         exercise_text: Raw exercise LLM response (===MARKDOWN=== / ===CODE=== format).
@@ -393,6 +446,7 @@ def _apply_solutions(exercise_text: str, solution_response: str) -> str:
     for match in func_pattern.finditer(solution_response):
         func_name = match.group(1)
         impl = match.group(2).strip()
+        body = _strip_func_header(impl)
 
         func_loc = result.find(f"def {func_name}(")
         if func_loc < 0:
@@ -402,7 +456,7 @@ def _apply_solutions(exercise_text: str, solution_response: str) -> str:
             r"[ \t]*### START CODE HERE ###\n.*?[ \t]*### END CODE HERE ###",
             re.DOTALL,
         )
-        after_replaced = stub_pattern.sub(impl, after, count=1)
+        after_replaced = stub_pattern.sub(body, after, count=1)
         result = result[:func_loc] + after_replaced
 
     return result

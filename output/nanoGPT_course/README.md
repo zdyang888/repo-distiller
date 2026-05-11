@@ -1,20 +1,19 @@
-# Understanding nanoGPT
+# Understanding nanoGPT: Minimalist GPT Training Framework
 
-nanoGPT provides a streamlined framework for understanding and training GPT models. It encapsulates the core GPT Transformer architecture, handles data preparation and loading, orchestrates the entire training process, and enables text generation from a trained model in a clean, single-file implementation approach.
+nanoGPT implements a clear and efficient version of the GPT-2 transformer architecture, focusing on making large language model training accessible. Students will learn to process text data, build the core GPT model, orchestrate its training loop, and finally generate text from a trained model.
 
 ## Contents
 
 | Notebook | Description |
 |----------|-------------|
-| [01. Configuring Your GPT Model](notebooks/01_configuring_your_gpt_model.ipynb) | Students will define the essential hyperparameters for a GPT model using a dataclass, understanding how these parameters influence the model's size and capabilities. |
-| [02. Building the GPT Transformer Block](notebooks/02_building_the_gpt_transformer_block.ipynb) | Students will construct the core components of the GPT model, including Layer Normalization, Causal Self-Attention, and the MLP, assembling them into a Transformer Block and finally the full GPT model. |
-| [03. Preparing and Loading Text Data](notebooks/03_preparing_and_loading_text_data.ipynb) | Students will learn how raw text is tokenized, converted to numerical IDs, saved in an efficient binary format, and then loaded in batches for training, focusing on `get_batch`. |
-| [04. Orchestrating the GPT Training Loop](notebooks/04_orchestrating_the_gpt_training_loop.ipynb) | Students will implement the full training loop, including model initialization, optimizer configuration, learning rate scheduling, forward/backward passes, and evaluation, connecting the model and data components. |
-| [05. Generating Text with a GPT Model](notebooks/05_generating_text_with_a_gpt_model.ipynb) | Students will learn how a trained GPT model generates new text, understanding the iterative prediction process and common sampling strategies like temperature and top-k filtering. |
+| [01. Preparing Text Data for LLMs](notebooks/01_preparing_text_data_for_llms.ipynb) | Students will learn how to tokenize raw text and convert it into a binary format suitable for efficient loading by an LLM, mimicking the `nanoGPT` data preparation pipeline. |
+| [02. Deconstructing the GPT Model Architecture](notebooks/02_deconstructing_the_gpt_model_architectur.ipynb) | Students will build a simplified version of the core components of the GPT model, including attention, MLP, and the overall block structure, understanding how they fit together. |
+| [03. Orchestrating the LLM Training Loop](notebooks/03_orchestrating_the_llm_training_loop.ipynb) | Students will implement a basic training loop for a language model, covering data loading, forward and backward passes, optimizer steps, and basic logging. |
+| [04. Generating Text with a Trained GPT](notebooks/04_generating_text_with_a_trained_gpt.ipynb) | Students will learn how to load a trained GPT model and use it to autoregressively generate new text sequences given a starting prompt. |
 
 ## Capstone Project
 
-**mini-nanoGPT**: Students will integrate all learned concepts to build a simplified end-to-end version of nanoGPT. This includes defining a model configuration, constructing the GPT architecture, preparing a small dataset, training the model on that data, and finally generating new text with their trained mini-GPT. This project reinforces the entire lifecycle of a language model.
+**mini-nanoGPT: End-to-End LLM Pipeline**: Students will build a simplified, end-to-end version of `nanoGPT`, capable of processing a small dataset, defining a minimalist GPT model, training it, and generating text. This project synthesizes all concepts learned throughout the course.
 
 See `capstone/` for instructions, starter code, and tests.
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agents.generator import GeneratorAgent, _slug, _hollow_out_exercise
+from agents.generator import GeneratorAgent, _slug, _hollow_out_exercise, _strip_func_header, _apply_solutions
 
 
 def test_hollow_out_exercise():
@@ -39,6 +39,60 @@ class Multiplier:
     
     # Check that indentation is preserved (roughly)
     assert "    # your code here" in hollowed
+
+
+def test_strip_func_header_removes_def_and_docstring():
+    """_strip_func_header extracts only the body from a full function definition."""
+    impl = '''def get_sequence(data, block_size):
+    """Get a random sequence from the data."""
+    ix = random.randint(0, len(data) - block_size)
+    x = data[ix:ix + block_size]
+    return x'''
+    body = _strip_func_header(impl)
+    assert "def get_sequence" not in body
+    assert '"""' not in body
+    assert "ix = random.randint" in body
+    assert "return x" in body
+
+
+def test_strip_func_header_no_docstring():
+    """_strip_func_header works when there's no docstring."""
+    impl = '''def add(a, b):
+    return a + b'''
+    body = _strip_func_header(impl)
+    assert "def add" not in body
+    assert "return a + b" in body
+
+
+def test_strip_func_header_no_def():
+    """_strip_func_header returns as-is when there's no def line."""
+    impl = "    return a + b"
+    assert _strip_func_header(impl) == impl
+
+
+def test_apply_solutions_no_duplicate_def():
+    """_apply_solutions must not produce duplicate function signatures."""
+    exercise = (
+        '===CODE===\n'
+        'def calculate(x):\n'
+        '    """Calculate something."""\n'
+        '    ### START CODE HERE ###\n'
+        '    pass\n'
+        '    ### END CODE HERE ###\n'
+    )
+    solution = (
+        'FUNCTION: calculate\n'
+        '===CODE===\n'
+        'def calculate(x):\n'
+        '    """Calculate something."""\n'
+        '    return x * 2\n'
+    )
+    result = _apply_solutions(exercise, solution)
+    # Should have exactly one 'def calculate'
+    assert result.count("def calculate(") == 1
+    assert "return x * 2" in result
+
+
 from tests.conftest import MockLLM
 
 

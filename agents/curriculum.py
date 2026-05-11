@@ -37,6 +37,7 @@ class CurriculumAgent:
             messages=[{"role": "user", "content": prompt}],
             system=CURRICULUM_SYSTEM,
             model=self.llm.model_for_step("curriculum"),
+            max_tokens=16000,
         )
 
         parsed = self._parse_json(response)

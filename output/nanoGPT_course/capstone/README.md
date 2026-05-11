@@ -1,183 +1,151 @@
-Here is a detailed capstone project README based on your specifications.
+# mini-nanoGPT: End-to-End LLM Pipeline
 
----
+Welcome to your capstone project! This project is the culmination of everything you've learned, challenging you to build a complete, working pipeline for a small-scale Large Language Model (LLM).
 
-# Capstone Project: mini-nanoGPT
+**By completing this project, you will have built a complete, end-to-end pipeline for a Generative Pre-trained Transformer (GPT) model.** You will have implemented the entire process from raw text processing and tokenization to model definition, training, and text generation. This project synthesizes all the core concepts of deep learning and natural language processing covered in the course into a single, tangible application.
 
-Welcome to your final capstone project! This project is designed to be a comprehensive exercise, integrating all the major concepts you've learned about building and training neural networks.
+**Estimated Time:** 4 hours
 
-**By completing this project, you will have built a simplified, end-to-end version of a GPT-style language model.** You will have implemented the core components yourself: the model configuration, the transformer architecture, the data loading pipeline, and the training loop. You'll finish by generating novel text from a model you trained from scratch, giving you a solid, practical understanding of the entire lifecycle of a modern language model.
+## System Architecture
 
-**Estimated Time to Complete:** 8 hours
-
-## 1. Project Overview
-
-The goal of this project is to build `mini-nanoGPT`, a small-scale implementation of a Generative Pre-trained Transformer. You will implement four key modules that work together to load text data, define a model, train it, and generate new text. This project will test your understanding of PyTorch, model architecture, data handling, and training dynamics.
-
-### System Architecture
-
-The project is composed of four main components. The `MiniTrainer` orchestrates the entire process, using the `MiniTextDataLoader` to get data and the `MiniGPTModel` (configured by `MiniGPTConfig`) to make predictions and learn.
+The project is divided into three main components that work together to process data, train a model, and generate text. The diagram below illustrates the flow of data through the system for both training and inference.
 
 ```ascii
-                  +-----------------+
-                  | MiniGPTConfig   |
-                  | (Hyperparams)   |
-                  +-------+---------+
-                          |
-                          | (configures)
-                          v
-+--------------------+  +-----------------+  +------------------+
-| MiniTextDataLoader |  |  MiniGPTModel   |  |   Optimizer &    |
-| (Loads/batches     |  | (Architecture)  |  |   Scheduler    |
-|  text data)        |  +-------+---------+  +--------+---------+
-+---------+----------+          ^                    ^
-          |                     | (updates weights)  | (used by)
-          | (provides data)     |                    |
-          v                     +--------------------+
-+-------------------------------------------------------------+
-|                         MiniTrainer                         |
-|      (Orchestrates training loop, evaluation, logging)      |
-+-------------------------------------------------------------+
+                                     TRAINING
+            +---------------------+
+Raw Text -> | MiniDataProcessor | -> train.bin / val.bin
+            +---------------------+
+                    |
+                    | (File path)
+                    v
+            +---------------------+       +----------------+
+            |    MiniTrainer    | ----> | MiniGPTModel   | (forward pass for loss)
+            +---------------------+       +----------------+
+                    |                             ^
+                    | (Saves model)               | (instantiates)
+                    v                             |
+            checkpoint.pt ------------------------+
+
+-----------------------------------------------------------------------------------
+
+                                     INFERENCE
+            +---------------------+
+            |   checkpoint.pt   | (Loads trained model)
+            +---------------------+
+                    |
+                    v
+            +----------------+
+Prompt ->   | MiniGPTModel   | -> Generated Text
+            +----------------+
+              (generate call)
 ```
 
-## 2. Modules to Implement
+## Modules to Implement
 
-You will implement the following four Python classes in the `implementation.py` file. Each class has a specific role, and the provided tests will verify its behavior.
+You will implement three Python classes in `implementation.py`. The tests in `test_capstone.py` will verify that each class meets the required specifications.
 
-### A. `MiniGPTConfig`
+### 1. `MiniDataProcessor`
 
-*   **Responsibility**: This is a simple data class that holds all the essential hyperparameters for the model. It acts as a single, organized source of truth for the model's architecture and training configuration.
-*   **Interface Sketch**:
+This module is the starting point of our pipeline. It takes raw text and prepares it for the model.
+
+*   **Responsibility:** Handles character-level tokenization of raw text and serializes the tokenized data into a binary file. This format is efficient for the trainer to read during training.
+*   **Interface Sketch:**
     ```python
-    from dataclasses import dataclass
-
-    @dataclass
-    class MiniGPTConfig:
-        block_size: int = 256
-        vocab_size: int = 50257
-        n_layer: int = 6
-        n_head: int = 6
-        n_embd: int = 384
-        dropout: float = 0.1
+    class MiniDataProcessor:
+        def __init__(self, vocab_size: int):
+            # Should initialize token encoders/decoders
+            ...
+        def prepare_data(self, text: str, output_file: str) -> None:
+            # Should tokenize text and write it to the binary output_file
+            ...
     ```
-*   **Test Behaviors**:
-    *   Instantiating with defaults should create an object with correct default values.
-    *   Instantiating with custom values should correctly assign them.
+*   **Expected Behavior (what the tests check):**
+    *   Given a short string of text, `prepare_data` successfully creates a `.bin` file at the specified path.
+    *   The contents of the `.bin` file must be the correct numerical (integer) representations of the tokens from the input text.
 
-### B. `MiniTextDataLoader`
+### 2. `MiniGPTModel`
 
-*   **Responsibility**: This class handles all data-related tasks. It reads a raw text file, creates a vocabulary, tokenizes the text into integers, and provides batches of data for training and validation.
-*   **Interface Sketch**:
-    ```python
-    import torch
+This is the core of our project—the neural network itself. It's a simplified version of a GPT model, but it contains all the essential components of the transformer architecture.
 
-    class MiniTextDataLoader:
-        def __init__(self, data_path: str, block_size: int, batch_size: int):
-            # ... tokenization and data preparation
-
-        def get_batch(self, split: str = 'train') -> tuple[torch.Tensor, torch.Tensor]:
-            # Returns a batch of (inputs, targets)
-
-        def get_vocab_size(self) -> int:
-            # Returns the size of the vocabulary
-    ```
-*   **Test Behaviors**:
-    *   Calling `get_batch` should return two tensors of shape `(batch_size, block_size)`.
-    *   The returned tensors should contain valid token IDs within the vocabulary range.
-    *   Calling `get_vocab_size` should return the correct number of unique characters in the input text.
-
-### C. `MiniGPTModel`
-
-*   **Responsibility**: This is the core of our project. This class defines the GPT architecture using PyTorch modules, including the token and positional embeddings, transformer blocks, and the final prediction head. It must be able to perform a forward pass to calculate logits (and loss) and generate new text autoregressively.
-*   **Interface Sketch**:
+*   **Responsibility:** Defines the GPT architecture, including token and position embeddings, transformer blocks, and the final prediction head. It must implement both a `forward` pass for training and a `generate` method for inference.
+*   **Interface Sketch:**
     ```python
     import torch
     import torch.nn as nn
+    from typing import Optional, Tuple
 
     class MiniGPTModel(nn.Module):
-        def __init__(self, config: MiniGPTConfig):
+        def __init__(self, vocab_size: int, block_size: int, n_layer: int, n_head: int, n_embd: int):
             super().__init__()
-            self.config = config
-            # ... layers defined here
-
-        def forward(self, idx: torch.Tensor, targets: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor]:
-            # Computes logits and optionally loss
             ...
-
-        def generate(self, idx: torch.Tensor, max_new_tokens: int, temperature: float = 1.0, top_k: int = None) -> torch.Tensor:
-            # Generates new tokens autoregressively
+        def forward(self, idx: torch.Tensor, targets: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+            # Process input `idx` and return logits. If `targets` are provided, also compute and return the loss.
+            ...
+        def generate(self, idx: torch.Tensor, max_new_tokens: int) -> torch.Tensor:
+            # Take a conditioning sequence `idx` and generate `max_new_tokens` more.
             ...
     ```
-*   **Test Behaviors**:
-    *   Calling `forward` with an input tensor of shape `(batch_size, block_size)` should return logits of shape `(batch_size, block_size, vocab_size)`.
-    *   Calling `generate` with a prompt and `max_new_tokens` should produce an output tensor of shape `(batch_size, prompt_len + max_new_tokens)`.
-    *   A helper method `get_num_parameters()` should return an integer count of trainable parameters.
+*   **Expected Behavior:**
+    *   Calling `forward` with an input tensor `idx` should return a tensor of logits with the correct shape. If `targets` are also provided, it should return a tuple of (logits, loss).
+    *   Calling `generate` with a starting sequence `idx` should produce a new tensor that extends the original sequence by `max_new_tokens`.
 
-### D. `MiniTrainer`
+### 3. `MiniTrainer`
 
-*   **Responsibility**: This class manages the entire training and evaluation process. It initializes the optimizer (e.g., AdamW), runs the training loop for a specified number of iterations, evaluates the model's performance on a validation set, and logs the results.
-*   **Interface Sketch**:
+This module orchestrates the training process. It connects the data and the model to actually learn from the data.
+
+*   **Responsibility:** Manages the training loop. This includes loading data in batches, feeding batches to the model, calculating loss, performing backpropagation with an optimizer, and saving the trained model weights (checkpointing).
+*   **Interface Sketch:**
     ```python
-    import torch
-
     class MiniTrainer:
-        def __init__(self, model: MiniGPTModel, data_loader: MiniTextDataLoader, config: dict):
-            # ... optimizer and scheduler setup
-
-        def train(self, num_iterations: int):
-            # Executes the full training loop
-
-        def evaluate(self, num_batches: int = 10) -> float:
-            # Computes average loss on evaluation data
+        def __init__(self, model: MiniGPTModel, train_data_file: str, val_data_file: str, batch_size: int, learning_rate: float, max_iters: int):
+            # Initialize optimizer, data loaders, etc.
+            ...
+        def train(self) -> None:
+            # Run the main training loop for `max_iters`.
+            ...
     ```
-*   **Test Behaviors**:
-    *   Calling `train` should reduce the model's loss over a number of iterations.
-    *   Calling `evaluate` should return a float representing the average validation loss.
-    *   The model's weights should have different values after `train` is called compared to before.
+*   **Expected Behavior:**
+    *   Running the `train` method should cause the model's validation loss to decrease over a small number of iterations, indicating that learning is occurring.
+    *   After the `train` method completes, a model checkpoint file (e.g., `latest_checkpoint.pt`) should be saved to disk.
 
-## 3. How the Modules Connect
+## How It All Fits Together: The Integration Test
 
-*   `MiniGPTConfig` is instantiated and passed to the `__init__` method of **`MiniGPTModel`** to define its architecture.
-*   `MiniTextDataLoader` is instantiated and passed to the `__init__` method of **`MiniTrainer`** to provide data.
-*   `MiniGPTModel` is instantiated and passed to the `__init__` method of **`MiniTrainer`**, which will be responsible for updating its weights.
-*   Inside the `MiniTrainer.train()` loop, the trainer will call `data_loader.get_batch()` to get inputs and targets, then pass them to `model.forward()` to get the loss, and finally use the optimizer to perform a backpropagation step.
+The final test (`test_end_to_end`) ensures all your modules work together correctly. It simulates the entire pipeline:
 
-## 4. Suggested Implementation Order
+1.  **Setup:** A small, predictable text corpus is defined: `"the quick brown fox jumps over the lazy dog. the lazy dog sleeps."`
+2.  **Data Processing:** Your `MiniDataProcessor` is used to tokenize this text and save it to `tiny_data.bin`.
+3.  **Model & Trainer Init:** Your `MiniGPTModel` and `MiniTrainer` are instantiated with a small configuration.
+4.  **Training:** The `MiniTrainer.train()` method is called to train the model on this tiny dataset for 100 iterations.
+5.  **Inference:** The saved checkpoint is loaded back into the model. The model is then prompted with the tokens for `"the quick"`.
+6.  **Validation:** The test checks if the text generated by the model contains plausible words from the training data (e.g., "brown", "fox", "dog"). This proves that the model has actually learned patterns from the data.
 
-To make development easier, we recommend implementing the modules in an order that respects their dependencies.
+## Success Criteria
 
-1.  **`MiniGPTConfig`**: Start here. It's the simplest and has no dependencies.
-2.  **`MiniTextDataLoader`**: This can be implemented next, as it also has no project dependencies. Getting the data pipeline right early is crucial.
-3.  **`MiniGPTModel`**: Implement the model architecture. This is the most complex part. You'll need a working `MiniGPTConfig` to initialize it. Focus on getting the `forward` pass correct first.
-4.  **`MiniTrainer`**: Finally, implement the trainer. It depends on all other components. This will tie everything together into a functional training loop.
+Your project is considered complete and successful when all automated tests pass. You can run the tests with `pytest`. A passing test suite demonstrates that each module fulfills its contract and that they integrate correctly to form a functional LLM pipeline.
 
-## 5. Success Criteria & Integration Test
+## Suggested Implementation Order
 
-Your primary goal is to **make all tests pass**. The `pytest` suite is designed to test each module in isolation and then together.
+We strongly recommend implementing the modules in the order of their dependencies to allow for incremental testing and development.
 
-The final test is an **integration test** that verifies the end-to-end functionality of your system.
+1.  **`MiniDataProcessor`:** Start here. It's self-contained and is the first step in the pipeline. Make sure you can correctly tokenize text and write it to a binary file.
+2.  **`MiniGPTModel`:** This is the most complex piece. Focus on building the transformer architecture. Don't worry about training yet; just ensure the `forward` and `generate` methods produce tensors of the expected shape.
+3.  **`MiniTrainer`:** Finally, implement the trainer. This will bring your data processor and model together. Your main goal here is to create a training loop that successfully reduces the model's loss.
 
-*   **Description**: This test trains your `MiniGPTModel` on a small, dummy text file and verifies that it can learn and generate coherent text.
-*   **Setup**: A small text file (`dummy_data.txt`) is created with repetitive text like `"hello world hello world..."`. A lightweight model and trainer configuration is used to ensure the test runs quickly.
-*   **Success Metric**:
-    1.  The training loss reported by the `MiniTrainer` must decrease significantly over the training iterations.
-    2.  The text generated by the trained model should be coherent (for its small world) and only contain tokens present in the training vocabulary.
-*   **Output Check**: The test will print the training loss at various steps. After training, it will prompt the model with a starting word (e.g., `'hello'`) and print the generated text. The output should consist of words from the original dummy text.
+## Getting Started
 
-## 6. Getting Started
+All your work should be done in the `implementation.py` file.
 
-1.  Navigate to the project directory.
-    ```bash
-    cd capstone/
-    ```
+To begin, navigate to the project directory and run the test suite. You will see all tests failing. Your goal is to implement the classes until all tests pass.
 
-2.  Open `implementation.py` in your editor. This is the only file you need to modify. All the classes and methods described above are stubbed out for you.
+```bash
+# Navigate to the capstone project directory
+cd capstone/
 
-3.  Implement the classes one by one, following the suggested order.
+# Implement the MiniDataProcessor, MiniGPTModel, and MiniTrainer classes
+# in the provided `implementation.py` file.
 
-4.  Run the tests from your terminal to check your progress. The `-v` flag provides verbose output, which is helpful for debugging.
-    ```bash
-    pytest test_capstone.py -v
-    ```
+# Run the tests to check your work. Use -v for verbose output.
+pytest test_capstone.py -v
+```
 
 Good luck

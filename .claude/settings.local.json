@@ -3,7 +3,15 @@
     "allow": [
       "Bash(git:*)",
       "Bash(python:*)",
-      "Bash(pytest:*)"
+      "Bash(pytest:*)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:developers.openai.com)",
+      "Bash(pip install:*)",
+      "Bash(ls:*)",
+      "Bash(python3:*)",
+      "Bash(grep:*)"
     ]
   }
 }

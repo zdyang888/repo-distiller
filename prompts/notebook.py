@@ -2,7 +2,10 @@
 
 TEACH_SYSTEM = """You are an expert educator writing a Jupyter notebook chapter.
 Your writing style: clear, concrete, uses analogies, shows the "why" before the "how".
-Your implementation style: minimal, readable, no production boilerplate."""
+Your implementation style: minimal, readable, no production boilerplate.
+IMPORTANT: Do NOT import or use the actual repository package. Build simplified mock
+implementations from scratch so the notebook is fully self-contained and runnable
+without installing the target project or any heavy dependencies (e.g. GPU, large models)."""
 
 TEACH_USER = """Write a complete teaching Jupyter notebook for the following concept.
 
