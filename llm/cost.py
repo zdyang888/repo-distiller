@@ -7,9 +7,16 @@ TOKEN_COSTS: dict[str, dict[str, float]] = {
     "claude-sonnet-4-20250514": {"input": 3.0,  "output": 15.0},
     "claude-opus-4-20250514":   {"input": 15.0, "output": 75.0},
     "claude-haiku-4-20251001":  {"input": 0.8,  "output": 4.0},
-    # ── OpenAI ────────────────────────────────────────────────────────────────
-    "gpt-4o":                   {"input": 5.0,  "output": 15.0},
-    "gpt-4o-mini":              {"input": 0.15, "output": 0.6},
+    # ── OpenAI GPT-5.x ───────────────────────────────────────────────────────
+    "gpt-5.5":                  {"input": 5.0,   "output": 30.0},
+    "gpt-5.5-pro":              {"input": 30.0,  "output": 180.0},
+    "gpt-5.4":                  {"input": 2.5,   "output": 15.0},
+    "gpt-5.4-mini":             {"input": 0.75,  "output": 4.5},
+    "gpt-5.4-nano":             {"input": 0.20,  "output": 1.25},
+    "gpt-5.4-pro":              {"input": 30.0,  "output": 180.0},
+    # ── OpenAI GPT-4 (legacy, still in use) ──────────────────────────────────
+    "gpt-4o":                   {"input": 5.0,   "output": 15.0},
+    "gpt-4o-mini":              {"input": 0.15,  "output": 0.6},
     # ── Google Gemini 3.x ─────────────────────────────────────────────────────
     # * tiered: <=200K context; >200K is $4.00 in / $18.00 out
     "gemini-3.1-pro-preview":   {"input": 2.0,  "output": 12.0},
