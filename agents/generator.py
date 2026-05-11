@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -313,10 +314,15 @@ class GeneratorAgent:
         return None
 
     def _persist_state(self) -> None:
-        """Write current state to .distill_state.json in output_dir."""
-        state_path = self.output_dir / STATE_FILE
-        with open(state_path, "w", encoding="utf-8") as f:
-            json.dump(self.state, f, indent=2)
+        """Atomically write current state to .distill_state.json in output_dir.
+
+        Writes to a temp file then renames to avoid corruption if the process
+        is killed mid-write.
+        """
+        target = self.output_dir / STATE_FILE
+        tmp = target.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self.state, indent=2), encoding="utf-8")
+        os.replace(tmp, target)
 
     def _write_readme(self, curriculum: dict) -> None:
         """Write a course README.md to output_dir."""

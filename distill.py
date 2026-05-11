@@ -4,6 +4,7 @@
 import argparse
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -15,59 +16,10 @@ from agents.curriculum import CurriculumAgent
 from agents.explorer import ExplorerAgent
 from agents.generator import GeneratorAgent
 from llm.client import LLMClient
+from llm.cost import estimate_cost  # noqa: F401 — re-exported for callers
 from tools.repo import RepoTool
 
 logger = logging.getLogger(__name__)
-
-# ── Cost estimation ───────────────────────────────────────────────────────────
-
-# Rough token costs per 1M tokens (USD)
-_TOKEN_COSTS: dict[str, dict[str, float]] = {
-    "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
-    "claude-opus-4-20250514": {"input": 15.0, "output": 75.0},
-    "claude-haiku-4-20251001": {"input": 0.8, "output": 4.0},
-    "gpt-4o": {"input": 5.0, "output": 15.0},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.6},
-    "gemini-2.0-flash": {"input": 0.075, "output": 0.3},
-}
-_DEFAULT_TOKEN_COST: dict[str, float] = {"input": 3.0, "output": 15.0}
-
-
-def estimate_cost(findings: dict, curriculum: dict, model: str) -> dict:
-    """Rough cost estimate for full generation.
-
-    Args:
-        findings: ExplorerFindings dict.
-        curriculum: Curriculum dict.
-        model: Model name string.
-
-    Returns:
-        Dict with input_tokens, output_tokens, total_usd, breakdown keys.
-    """
-    n_notebooks = len(curriculum.get("notebooks", []))
-    costs = _TOKEN_COSTS.get(model, _DEFAULT_TOKEN_COST)
-
-    # Heuristic token estimates per notebook (teach + exercise + solution)
-    notebooks_in = n_notebooks * 3000
-    notebooks_out = n_notebooks * 6000
-    capstone_in = 4000
-    capstone_out = 3000
-
-    total_in = notebooks_in + capstone_in
-    total_out = notebooks_out + capstone_out
-
-    notebooks_usd = (notebooks_in * costs["input"] + notebooks_out * costs["output"]) / 1_000_000
-    capstone_usd = (capstone_in * costs["input"] + capstone_out * costs["output"]) / 1_000_000
-
-    return {
-        "input_tokens": total_in,
-        "output_tokens": total_out,
-        "total_usd": notebooks_usd + capstone_usd,
-        "breakdown": {
-            "notebooks": notebooks_usd,
-            "capstone": capstone_usd,
-        },
-    }
 
 
 def format_cost_report(state: dict) -> str:
@@ -207,8 +159,15 @@ def _load_state(output_dir: Path) -> dict:
 
 
 def _save_state(output_dir: Path, state: dict) -> None:
-    """Write state dict to .distill_state.json in output_dir."""
-    (output_dir / ".distill_state.json").write_text(json.dumps(state, indent=2))
+    """Atomically write state dict to .distill_state.json in output_dir.
+
+    Writes to a temp file then renames to avoid corruption if the process
+    is killed mid-write.
+    """
+    target = output_dir / ".distill_state.json"
+    tmp = target.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    os.replace(tmp, target)
 
 
 def _new_state(
@@ -334,18 +293,24 @@ def cmd_explore(args: argparse.Namespace) -> None:
     print("[1/3] Cloning repository...")
     repo_tool = RepoTool(args.repo, work_dir=str(output_dir / "_repo_cache"))
     repo_path = repo_tool.clone()
+    logger.debug("Cloned to %s", repo_path)
 
     # 2. Explore
     print("[2/3] Agent exploring repository...")
     explorer = ExplorerAgent(client, repo_tool)
     findings = explorer.explore()
     concepts = findings.get("concepts", [])
+    logger.debug("Explorer findings: %d concepts, %d key files",
+                 len(concepts), len(findings.get("key_files", [])))
     print(f"      Found {len(concepts)} concepts: " + ", ".join(c["name"] for c in concepts))
 
     # 3. Curriculum
     print("\n[3/3] Generating curriculum outline...")
     curriculum = CurriculumAgent(client).generate(findings)
-    print(f"      Planned {len(curriculum.get('notebooks', []))} notebooks")
+    n_notebooks = len(curriculum.get("notebooks", []))
+    logger.debug("Curriculum generated: %d notebooks, capstone=%r",
+                 n_notebooks, curriculum.get("capstone", {}).get("title"))
+    print(f"      Planned {n_notebooks} notebooks")
 
     estimate = estimate_cost(findings, curriculum, client.model)
     print(f"      Estimated full-generation cost: ${estimate['total_usd']:.2f}")
@@ -353,6 +318,7 @@ def cmd_explore(args: argparse.Namespace) -> None:
     # Persist
     state = _new_state(args.repo, repo_path, output_dir, findings, curriculum, client)
     _save_state(output_dir, state)
+    logger.debug("State persisted to %s", output_dir / ".distill_state.json")
     write_curriculum_md(output_dir / "CURRICULUM.md", curriculum, args.repo)
 
     print("\n" + "─" * 60)
@@ -411,11 +377,15 @@ def cmd_continue(args: argparse.Namespace) -> None:
     repo_tool.repo_path = state["repo_path"]
 
     try:
+        logger.info("Starting notebook generation (%d notebooks)", len(curriculum["notebooks"]))
         gen = GeneratorAgent(client, repo_tool, output_dir, state)
         gen.generate_all(user_md, curriculum)
+        logger.info("Notebook generation complete")
 
+        logger.info("Starting capstone generation with validation loop")
         cap = CapstoneAgent(client, output_dir, state)
         cap.generate_with_validation(curriculum)
+        logger.info("Capstone generation complete")
 
         write_course_readme(output_dir / "README.md", curriculum)
 
@@ -426,6 +396,7 @@ def cmd_continue(args: argparse.Namespace) -> None:
         state["step"] = "failed"
         state["progress"]["last_error"] = str(e)
         _save_state(output_dir, state)
+        logger.error("Generation failed: %s", e)
         print(f"\nFAILED: {e}")
         print(f"Resume with: python distill.py --resume --output {output_dir}")
         raise
