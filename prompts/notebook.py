@@ -41,14 +41,17 @@ Structure your notebook as:
 5. ===MARKDOWN=== — Walk through the implementation line by line
 6. ===CODE===     — Demonstration: show it working with a concrete example
 7. ===MARKDOWN=== — Section: Going Deeper (one non-obvious design decision from the real repo)
-8. ===CODE===     — Slightly more complex example OR visualization (matplotlib/ASCII art)
+8. ===CODE===     — Visualization: implement the visualization idea above using matplotlib or graphviz (not ASCII art)
 9. ===MARKDOWN=== — Summary: what we built | key takeaways | what's next
 
 Requirements:
 - Every code cell must run standalone (imports at top of that cell or in setup cell)
 - Use concrete variable names, not x/y/z
 - Simplify the real implementation: keep core logic, drop error handling/config/async
-- The visualization must show something hard to explain in text alone
+- You MUST include at least one visualization cell using matplotlib or graphviz (not ASCII art).
+  For architecture/workflow diagrams: use graphviz (import graphviz; dot = graphviz.Digraph()).
+  For heatmaps, loss curves, data distributions, memory layouts: use matplotlib.
+  The visualization idea above is a suggestion — adapt it but do produce a real rendered plot/graph.
 - Minimum 5 CODE cells
 """
 

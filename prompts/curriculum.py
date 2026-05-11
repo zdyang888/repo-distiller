@@ -45,7 +45,7 @@ Output ONLY valid JSON with this exact structure:
         "Students will understand why Y exists"
       ],
       "exercise_description": "Students will implement Z from scratch given the interface",
-      "visualization_idea": "Draw/animate the X to show how Y flows"
+      "visualization_idea": "matplotlib or graphviz diagram: e.g. architecture block diagram (graphviz), attention heatmap (matplotlib), data pipeline flow (graphviz), memory layout (matplotlib), or training loss curve (matplotlib)"
     }}
   ],
   "capstone": {{
