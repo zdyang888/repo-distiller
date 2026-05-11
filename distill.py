@@ -15,25 +15,14 @@ from agents.capstone import CapstoneAgent
 from agents.curriculum import CurriculumAgent
 from agents.explorer import ExplorerAgent
 from agents.generator import GeneratorAgent
+from infra.logging import setup_logging  # noqa: F401 — re-exported for callers
 from llm.client import LLMClient
+from llm.cost import compute_actual_cost  # noqa: F401
 from llm.cost import estimate_cost  # noqa: F401 — re-exported for callers
+from llm.cost import format_cost_report  # noqa: F401 — re-exported for callers
 from tools.repo import RepoTool
 
 logger = logging.getLogger(__name__)
-
-
-def format_cost_report(state: dict) -> str:
-    """Format a cost summary string from state dict."""
-    cost = state.get("cost", {})
-    total_in = sum(v for k, v in cost.items() if "input_tokens" in k)
-    total_out = sum(v for k, v in cost.items() if "output_tokens" in k)
-    total_usd = cost.get("total_estimated_usd", 0.0)
-    return "\n".join([
-        "Cost so far:",
-        f"  Input tokens:  {total_in:,}",
-        f"  Output tokens: {total_out:,}",
-        f"  Estimated USD: ${total_usd:.4f}",
-    ])
 
 
 # ── Curriculum MD helpers ─────────────────────────────────────────────────────
@@ -134,17 +123,6 @@ def write_course_readme(path: Path, curriculum: dict) -> None:
         "```",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
-
-
-# ── Logging ───────────────────────────────────────────────────────────────────
-
-def setup_logging(level: str) -> None:
-    """Configure root logger at the given level."""
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
-        datefmt="%H:%M:%S",
-    )
 
 
 # ── State helpers ─────────────────────────────────────────────────────────────
@@ -276,7 +254,6 @@ def _init_git(output_dir: Path) -> None:
 
 def cmd_explore(args: argparse.Namespace) -> None:
     """Step 1: clone, explore, write CURRICULUM.md."""
-    setup_logging(args.log_level)
 
     client = LLMClient(args.config)
     if args.model:
@@ -297,26 +274,36 @@ def cmd_explore(args: argparse.Namespace) -> None:
 
     # 2. Explore
     print("[2/3] Agent exploring repository...")
+    client.reset_usage()
     explorer = ExplorerAgent(client, repo_tool)
     findings = explorer.explore()
+    explore_usage = client.total_usage
     concepts = findings.get("concepts", [])
-    logger.debug("Explorer findings: %d concepts, %d key files",
-                 len(concepts), len(findings.get("key_files", [])))
+    logger.debug("Explorer findings: %d concepts, %d key files — used %d/%d tokens",
+                 len(concepts), len(findings.get("key_files", [])),
+                 explore_usage["input_tokens"], explore_usage["output_tokens"])
     print(f"      Found {len(concepts)} concepts: " + ", ".join(c["name"] for c in concepts))
 
     # 3. Curriculum
     print("\n[3/3] Generating curriculum outline...")
+    client.reset_usage()
     curriculum = CurriculumAgent(client).generate(findings)
+    curriculum_usage = client.total_usage
     n_notebooks = len(curriculum.get("notebooks", []))
-    logger.debug("Curriculum generated: %d notebooks, capstone=%r",
-                 n_notebooks, curriculum.get("capstone", {}).get("title"))
+    logger.debug("Curriculum generated: %d notebooks, capstone=%r — used %d/%d tokens",
+                 n_notebooks, curriculum.get("capstone", {}).get("title"),
+                 curriculum_usage["input_tokens"], curriculum_usage["output_tokens"])
     print(f"      Planned {n_notebooks} notebooks")
 
     estimate = estimate_cost(findings, curriculum, client.model)
     print(f"      Estimated full-generation cost: ${estimate['total_usd']:.2f}")
 
-    # Persist
+    # Persist state with actual token usage so far
     state = _new_state(args.repo, repo_path, output_dir, findings, curriculum, client)
+    state["cost"]["explore_input_tokens"] = explore_usage["input_tokens"]
+    state["cost"]["explore_output_tokens"] = explore_usage["output_tokens"]
+    state["cost"]["curriculum_input_tokens"] = curriculum_usage["input_tokens"]
+    state["cost"]["curriculum_output_tokens"] = curriculum_usage["output_tokens"]
     _save_state(output_dir, state)
     logger.debug("State persisted to %s", output_dir / ".distill_state.json")
     write_curriculum_md(output_dir / "CURRICULUM.md", curriculum, args.repo)
@@ -333,7 +320,6 @@ def cmd_explore(args: argparse.Namespace) -> None:
 
 def cmd_continue(args: argparse.Namespace) -> None:
     """Step 2: generate all notebooks + capstone from saved state."""
-    setup_logging(args.log_level)
     output_dir = Path(args.output or _find_latest_output())
     state = _load_state(output_dir)
 
@@ -378,14 +364,24 @@ def cmd_continue(args: argparse.Namespace) -> None:
 
     try:
         logger.info("Starting notebook generation (%d notebooks)", len(curriculum["notebooks"]))
+        client.reset_usage()
         gen = GeneratorAgent(client, repo_tool, output_dir, state)
         gen.generate_all(user_md, curriculum)
-        logger.info("Notebook generation complete")
+        nb_usage = client.total_usage
+        state["cost"]["notebooks_input_tokens"] += nb_usage["input_tokens"]
+        state["cost"]["notebooks_output_tokens"] += nb_usage["output_tokens"]
+        logger.info("Notebook generation complete — used %d/%d tokens",
+                    nb_usage["input_tokens"], nb_usage["output_tokens"])
 
         logger.info("Starting capstone generation with validation loop")
+        client.reset_usage()
         cap = CapstoneAgent(client, output_dir, state)
         cap.generate_with_validation(curriculum)
-        logger.info("Capstone generation complete")
+        cap_usage = client.total_usage
+        state["cost"]["capstone_input_tokens"] += cap_usage["input_tokens"]
+        state["cost"]["capstone_output_tokens"] += cap_usage["output_tokens"]
+        logger.info("Capstone generation complete — used %d/%d tokens",
+                    cap_usage["input_tokens"], cap_usage["output_tokens"])
 
         write_course_readme(output_dir / "README.md", curriculum)
 
@@ -413,7 +409,6 @@ def cmd_continue(args: argparse.Namespace) -> None:
 
 def cmd_refine(args: argparse.Namespace) -> None:
     """Refine specific content based on a user instruction."""
-    setup_logging(args.log_level)
     output_dir = Path(args.output or _find_latest_output())
     state = _load_state(output_dir)
     client = LLMClient(args.config)
@@ -475,7 +470,6 @@ def cmd_refine(args: argparse.Namespace) -> None:
 
 def cmd_preview(args: argparse.Namespace) -> None:
     """Generate a single notebook for quality preview."""
-    setup_logging(args.log_level)
     output_dir = Path(args.output or _find_latest_output())
     state = _load_state(output_dir)
     client = LLMClient(args.config)
@@ -508,7 +502,6 @@ def cmd_preview(args: argparse.Namespace) -> None:
 
 def cmd_resume(args: argparse.Namespace) -> None:
     """Resume a previously failed --continue from saved progress."""
-    setup_logging(args.log_level)
     output_dir = Path(args.output or _find_latest_output())
     state = _load_state(output_dir)
 
@@ -603,20 +596,38 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.repo:
-        cmd_explore(args)
-    elif args.do_continue:
-        cmd_continue(args)
-    elif args.refine:
-        cmd_refine(args)
-    elif args.preview:
-        cmd_preview(args)
-    elif args.resume:
-        cmd_resume(args)
-    elif args.estimate_cost:
-        cmd_estimate_cost(args)
-    elif args.status:
-        cmd_status(args)
+    # Set up logging once before any command runs
+    output_dir_hint = Path(args.output) if args.output else None
+    setup_logging(args.log_level, output_dir=output_dir_hint)
+
+    try:
+        if args.repo:
+            cmd_explore(args)
+        elif args.do_continue:
+            cmd_continue(args)
+        elif args.refine:
+            cmd_refine(args)
+        elif args.preview:
+            cmd_preview(args)
+        elif args.resume:
+            cmd_resume(args)
+        elif args.estimate_cost:
+            cmd_estimate_cost(args)
+        elif args.status:
+            cmd_status(args)
+    except KeyboardInterrupt:
+        print("\nInterrupted. Run --resume to continue.")
+        sys.exit(130)
+    except (EnvironmentError, FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except SystemExit:
+        raise  # let _load_state / _find_latest_output sys.exit pass through
+    except Exception as e:
+        logger.exception("Unexpected error")
+        print(f"\nUnexpected error: {e}", file=sys.stderr)
+        print("See distill.log for details.", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

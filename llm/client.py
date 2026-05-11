@@ -37,6 +37,7 @@ class LLMClient:
 
         self._model: str = self._config.get("default_model", "claude-sonnet-4-20250514")
         self._last_usage: dict = {}
+        self._total_usage: dict = {"input_tokens": 0, "output_tokens": 0}
 
     @property
     def model(self) -> str:
@@ -60,6 +61,19 @@ class LLMClient:
     def last_usage(self) -> dict:
         """Returns {"input_tokens": int, "output_tokens": int, "model": str}."""
         return self._last_usage
+
+    @property
+    def total_usage(self) -> dict:
+        """Cumulative token usage since the last reset_usage() call.
+
+        Returns:
+            {"input_tokens": int, "output_tokens": int}
+        """
+        return dict(self._total_usage)
+
+    def reset_usage(self) -> None:
+        """Reset the cumulative token counter. Call before each agent phase."""
+        self._total_usage = {"input_tokens": 0, "output_tokens": 0}
 
     def chat(
         self,
@@ -91,6 +105,8 @@ class LLMClient:
                     raise ValueError(f"Unknown model: {effective_model!r}")
 
                 self._last_usage = {**usage, "model": effective_model}
+                self._total_usage["input_tokens"] += usage["input_tokens"]
+                self._total_usage["output_tokens"] += usage["output_tokens"]
                 return response_text
 
             except Exception as exc:

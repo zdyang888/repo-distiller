@@ -1,4 +1,8 @@
-"""Token cost estimation for supported models."""
+"""Token cost estimation and actual cost tracking for supported models."""
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Cost per 1M tokens (USD). Source: provider pricing pages as of 2026-05.
 # For tiered models (*) the standard tier (<=200K token context) is used.
@@ -68,24 +72,85 @@ def estimate_cost(findings: dict, curriculum: dict, model: str) -> dict:
     n_notebooks = len(curriculum.get("notebooks", []))
     costs = TOKEN_COSTS.get(model, _DEFAULT_TOKEN_COST)
 
-    # Heuristic token estimates per notebook (teach + exercise + solution)
+    # Heuristic token estimates (per spec section 6.8)
+    # Teaching notebooks: ~3000 in + 4000 out each
+    # Exercises:          ~2000 in + 3500 out each
+    # Capstone:           ~4 LLM calls × 3000/3000 tokens
     notebooks_in = n_notebooks * 3000
-    notebooks_out = n_notebooks * 6000
-    capstone_in = 4000
-    capstone_out = 3000
+    notebooks_out = n_notebooks * 4000
+    exercises_in = n_notebooks * 2000
+    exercises_out = n_notebooks * 3500
+    capstone_in = 4 * 3000
+    capstone_out = 4 * 3000
 
-    total_in = notebooks_in + capstone_in
-    total_out = notebooks_out + capstone_out
+    total_in = notebooks_in + exercises_in + capstone_in
+    total_out = notebooks_out + exercises_out + capstone_out
 
     notebooks_usd = (notebooks_in * costs["input"] + notebooks_out * costs["output"]) / 1_000_000
+    exercises_usd = (exercises_in * costs["input"] + exercises_out * costs["output"]) / 1_000_000
     capstone_usd = (capstone_in * costs["input"] + capstone_out * costs["output"]) / 1_000_000
 
     return {
         "input_tokens": total_in,
         "output_tokens": total_out,
-        "total_usd": notebooks_usd + capstone_usd,
+        "total_usd": notebooks_usd + exercises_usd + capstone_usd,
         "breakdown": {
             "notebooks": notebooks_usd,
+            "exercises": exercises_usd,
             "capstone": capstone_usd,
         },
     }
+
+
+def compute_actual_cost(state: dict) -> float:
+    """Compute total actual USD cost from accumulated token counts in state.
+
+    Uses TOKEN_COSTS to price the tokens logged per step. Falls back to 0 and
+    warns when the model is unknown.
+
+    Args:
+        state: DistillState dict with cost and config_snapshot keys.
+
+    Returns:
+        Total cost in USD as a float.
+    """
+    cost = state.get("cost", {})
+    config_snap = state.get("config_snapshot", {})
+    step_models = config_snap.get("step_models", {})
+    default_model = config_snap.get("default_model", "")
+
+    total = 0.0
+    for step in ("explore", "curriculum", "notebooks", "capstone"):
+        in_tok = cost.get(f"{step}_input_tokens", 0)
+        out_tok = cost.get(f"{step}_output_tokens", 0)
+        if in_tok == 0 and out_tok == 0:
+            continue
+        model = step_models.get(step, default_model)
+        rates = TOKEN_COSTS.get(model)
+        if rates is None:
+            logger.warning("compute_actual_cost: unknown model %r for step %s, skipping", model, step)
+            continue
+        total += (in_tok * rates["input"] + out_tok * rates["output"]) / 1_000_000
+
+    return total
+
+
+def format_cost_report(state: dict) -> str:
+    """Return a human-readable cost summary string for end-of-run printing.
+
+    Args:
+        state: DistillState dict.
+
+    Returns:
+        Multi-line string with token counts and USD estimate.
+    """
+    cost = state.get("cost", {})
+    total_in = sum(v for k, v in cost.items() if "input_tokens" in k)
+    total_out = sum(v for k, v in cost.items() if "output_tokens" in k)
+    actual_usd = compute_actual_cost(state)
+    return "\n".join([
+        "Cost so far:",
+        f"  Input tokens:  {total_in:,}",
+        f"  Output tokens: {total_out:,}",
+        f"  Actual USD:    ${actual_usd:.4f}",
+    ])
