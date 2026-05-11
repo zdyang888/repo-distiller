@@ -2,6 +2,19 @@
 
 CURRICULUM_SYSTEM = """You are an expert educator designing a course curriculum for software engineers."""
 
+REVISE_SYSTEM = """You are an expert educator revising a course curriculum based on feedback."""
+
+REVISE_USER = """Here is the current curriculum for a software engineering course:
+
+{curriculum_md}
+
+The user has provided the following feedback:
+{feedback}
+
+Revise the curriculum to address this feedback. Keep everything that works well — only change what the feedback asks for.
+Output ONLY valid JSON using the exact same structure as the embedded JSON in the curriculum above.
+Do not add any explanation, markdown, or text outside the JSON object."""
+
 CURRICULUM_USER = """Repository findings:
 {findings_json}
 

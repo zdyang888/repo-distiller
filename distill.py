@@ -27,6 +27,7 @@ from llm.client import LLMClient
 from llm.cost import compute_actual_cost  # noqa: F401
 from llm.cost import estimate_cost  # noqa: F401 — re-exported for callers
 from llm.cost import format_cost_report  # noqa: F401 — re-exported for callers
+from prompts.curriculum import REVISE_SYSTEM, REVISE_USER
 from tools.repo import RepoTool
 
 logger = logging.getLogger(__name__)
@@ -524,6 +525,54 @@ def cmd_resume(args: argparse.Namespace) -> None:
     cmd_continue(args)
 
 
+def cmd_revise(args: argparse.Namespace) -> None:
+    """Revise CURRICULUM.md based on natural-language feedback."""
+    output_dir = Path(args.output or _find_latest_output())
+    state = _load_state(output_dir)
+    client = LLMClient(args.config)
+    if args.model:
+        client.model = args.model
+
+    curriculum_path = output_dir / "CURRICULUM.md"
+    if not curriculum_path.exists():
+        print(f"No CURRICULUM.md found in {output_dir}. Run --repo first.")
+        return
+
+    curriculum_md = curriculum_path.read_text()
+
+    print(f"\nrepo-distiller  |  revise curriculum")
+    print("─" * 60)
+    print(f"Feedback: {args.revise}\n")
+
+    prompt = REVISE_USER.format(curriculum_md=curriculum_md, feedback=args.revise)
+    response = client.chat(
+        messages=[{"role": "user", "content": prompt}],
+        system=REVISE_SYSTEM,
+        model=client.model_for_step("curriculum"),
+    )
+
+    revised = parse_curriculum_md(response, state["curriculum"])
+    if revised is state["curriculum"]:
+        print("Could not parse revised curriculum from LLM response. No changes made.")
+        return
+
+    # Back up the original
+    backup = curriculum_path.with_suffix(".md.bak")
+    import shutil as _shutil
+    _shutil.copy(curriculum_path, backup)
+    print(f"  Backed up original to: {backup.name}")
+
+    # Write revised CURRICULUM.md and update state
+    write_curriculum_md(curriculum_path, revised, state["repo_url"])
+    state["curriculum"] = revised
+    _save_state(output_dir, state)
+
+    print(f"  Revised curriculum written: {len(revised.get('notebooks', []))} notebooks")
+    print("\n" + "─" * 60)
+    print(f"Review the updated CURRICULUM.md, then run:")
+    print(f"  python distill.py --continue --output {output_dir}")
+
+
 def cmd_estimate_cost(args: argparse.Namespace) -> None:
     """Show cost estimate without generating anything."""
     output_dir = Path(args.output or _find_latest_output())
@@ -587,6 +636,10 @@ def main() -> None:
     cmd.add_argument("--preview", metavar="NN", help="Generate ONE notebook for quality check")
     cmd.add_argument("--resume", action="store_true", help="Resume an interrupted --continue")
     cmd.add_argument(
+        "--revise", metavar="FEEDBACK",
+        help="Revise CURRICULUM.md based on natural-language feedback",
+    )
+    cmd.add_argument(
         "--estimate-cost", dest="estimate_cost", action="store_true",
         help="Show cost estimate without running",
     )
@@ -618,6 +671,8 @@ def main() -> None:
             cmd_preview(args)
         elif args.resume:
             cmd_resume(args)
+        elif args.revise:
+            cmd_revise(args)
         elif args.estimate_cost:
             cmd_estimate_cost(args)
         elif args.status:
